@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn
 import torch.nn.functional as F
@@ -7,27 +9,40 @@ from torch.nn.modules.module import Module
 
 
 class SummGCN(Module):
-    def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.5) -> None:
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.5, bias=True):
         super(SummGCN, self).__init__()
-        self.layer1 = SummGCNLayer(in_dim, hidden_dim)
-        self.layer2 = SummGCNLayer(hidden_dim, out_dim)
+        self.layer1 = SummGCNLayer(in_dim, hidden_dim, bias=bias)
+        self.layer2 = SummGCNLayer(hidden_dim, out_dim, bias=bias)
         self.dropout = dropout
 
     def forward(self, inputs):
-        x, R = *inputs
-        x = F.relu(self.layer1(x, R))
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x, adj = inputs
+        output = F.relu(self.layer1(x, adj))
+        output = F.dropout(output, p=self.dropout, training=self.training)
 
-        x = self.layer2(x, R)
-        return F.log_softmax(x, dim=1)
+        output = self.layer2(output, adj)
+        return F.log_softmax(output, dim=1)
 
 
 class SummGCNLayer(Module):
-    def __init__(self, in_dim, out_dim) -> None:
+    def __init__(self, in_dim, out_dim, bias=True):
         super(SummGCNLayer, self).__init__()
         self.weight = Parameter(torch.FloatTensor(in_dim, out_dim))
+        if bias:
+            self.bias = Parameter(torch.FloatTensor(out_dim))
+        else:
+            self.register_parameter('bias', None)
+        self.init_parameter()
 
-    def forward(self, x, R):
-        x = torch.matmul(x, self.weight)
-        x = torch.spmm(R, x)
-        return x
+    def forward(self, x, adj):
+        output = torch.matmul(x, self.weight)
+        output = torch.spmm(adj, output)
+        if self.bias is not None:
+            output += self.bias
+        return output
+
+    def init_parameter(self):
+        stdv = 1. / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
