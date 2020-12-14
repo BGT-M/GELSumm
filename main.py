@@ -96,9 +96,9 @@ def train(model, epochs):
         loss_val = F.nll_loss(y_, y)
         acc_val = accuracy(y_, y)
 
-        epoch_turn = 40
-        # if epoch % epoch_turn == epoch_turn-1:
-        if True:
+        log_epoch = 20
+        if epoch % log_epoch == log_epoch-1:
+        # if True:
             print("Epoch: {:04d}".format(epoch+1),
                   "loss_train: {:.4f}".format(loss_train.cpu().item()),
                   "acc_train: {:.4f}".format(acc_train.cpu().item()),
