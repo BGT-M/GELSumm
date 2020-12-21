@@ -1,4 +1,5 @@
 from functools import total_ordering
+import logging
 import os
 import sys
 import time
@@ -13,6 +14,23 @@ import torch.nn.functional as F
 
 from summGCN import SummGCN
 from utils import load_data, accuracy, to_torch, normalize
+
+logger = logging.getLogger('summGCN')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
+
+if len(logger.handlers) < 2:
+    filename = 'summGCN.log'
+    file_handler = logging.FileHandler(filename, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", required=True, type=str,
@@ -32,7 +50,11 @@ parser.add_argument("--hidden", type=int, default=16,
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
 parser.add_argument("--gcn", default=False, action="store_true")
+parser.add_argument("--log_turn", type=int, default=10,
+                    help="Number of turn to log")
 args = parser.parse_args()
+logger.debug("Args:")
+logger.debug(args)
 
 gpu_id = args.cuda
 if not torch.cuda.is_available():
@@ -40,12 +62,14 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-R, S, A_s, features, labels, idx_train, idx_val, idx_test = load_data(
+R, S, A, A_s, features, labels, idx_train, idx_val, idx_test = load_data(
     args.dataset)
 N, d = features.shape
 n = S.shape[1]
 nclass = labels.max().item() + 1
-print(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
+logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
+logger.info(
+    f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 features = normalize(features)
 features_s = S.T @ features
@@ -56,61 +80,85 @@ if args.gcn:
     adj = D_inv @ A_s @ D_inv
 else:
     adj = R @ A_s @ R
-    adj = (S.T @ S) @ adj
-adj, features_s, labels = to_torch(
+    # adj = (S.T @ S) @ adj
+A += ssp.diags([1] * N)
+degs = np.array(A.sum(axis=1)).squeeze()
+D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
+A = D_inv @ A @ D_inv
+
+S, A, adj, features_s, labels = to_torch(S), to_torch(A), to_torch(
     adj), to_torch(features_s), to_torch(labels)
 idx_train, idx_val, idx_test = to_torch(
     idx_train), to_torch(idx_val), to_torch(idx_test)
 
 device = f"cuda:{gpu_id}"
 if gpu_id >= 0:
+    A = A.cuda(device)
     adj = adj.cuda(device)
+    S = S.cuda(device)
     features_s = features_s.cuda(device)
     labels = labels.cuda(device)
     idx_train = idx_train.cuda(device)
     idx_val = idx_val.cuda(device)
     idx_test = idx_test.cuda(device)
 
-model = SummGCN(d, args.hidden, nclass, dropout=args.dropout)
+model = SummGCN(d, args.hidden, nclass, S, dropout=args.dropout)
 if gpu_id >= 0:
     model = model.cuda(device)
 
 
 def train(model, epochs):
+    max_val_acc = 0.0
+    best_params = None
     optimizer = optim.Adam(model.parameters(),
                            lr=args.lr, weight_decay=args.weight_decay)
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
-        output = model((features_s, adj))
+        embeds = model((features_s, adj))
+        embeds = torch.spmm(A, embeds)
+        output = F.log_softmax(embeds, dim=1)
 
         y_, y = output[idx_train], labels[idx_train]
         loss_train = F.nll_loss(y_, y)
         acc_train = accuracy(output[idx_train], labels[idx_train])
         loss_train.backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
         optimizer.step()
 
         model.eval()
-        output = model((features_s, adj))
+        embeds = model((features_s, adj))
+        embeds = torch.spmm(A, embeds)
+        output = F.log_softmax(embeds, dim=1)
         y_, y = output[idx_val], labels[idx_val]
         loss_val = F.nll_loss(y_, y)
         acc_val = accuracy(y_, y)
+        if acc_val.cpu().item() >= 0.40 and acc_val.cpu().item() > max_val_acc:
+            max_val_acc = acc_val.cpu().item()
+            best_params = model.state_dict()
 
-        log_epoch = 20
-        if epoch % log_epoch == log_epoch-1:
-        # if True:
-            print("Epoch: {:04d}".format(epoch+1),
-                  "loss_train: {:.4f}".format(loss_train.cpu().item()),
-                  "acc_train: {:.4f}".format(acc_train.cpu().item()),
-                  "loss_val: {:.4f}".format(loss_val.cpu().item()),
-                  "acc_val: {:.4f}".format(acc_val.cpu().item()))
+        message = "{} {} {} {} {}".format(
+            "Epoch: {:04d}".format(epoch+1),
+            "loss_train: {:.4f}".format(loss_train.cpu().item()),
+            "acc_train: {:.4f}".format(acc_train.cpu().item()),
+            "loss_val: {:.4f}".format(loss_val.cpu().item()),
+            "acc_val: {:.4f}".format(acc_val.cpu().item())
+        )
+        if args.log_turn <= 0:
+            logger.debug(message)
+        elif epoch % args.log_turn == args.log_turn - 1:
+            logger.info(message)
+        else:
+            logger.debug(message)
 
         optimizer.step()
+    model.load_state_dict(best_params)
 
 
 def test(model):
     model.eval()
-    output = model((features_s, adj))
+    embeds = model((features_s, adj))
+    output = F.log_softmax(embeds, dim=1)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
     print("Test set results:",
@@ -119,9 +167,9 @@ def test(model):
 
 
 if __name__ == "__main__":
-    print("Start training...")
+    logger.info("Start training...")
     start_time = time.time()
     train(model, args.epochs)
-    print(f"Training completed, costs {time.time()-start_time} seconds.")
+    logger.info(f"Training completed, costs {time.time()-start_time} seconds.")
 
     test(model)
