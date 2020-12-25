@@ -1,7 +1,7 @@
 from functools import total_ordering
 import logging
 import os
-import sys
+import pickle
 import time
 from argparse import ArgumentParser
 from utils import load_data
@@ -20,8 +20,9 @@ logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
     '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
 
+time_str = time.strftime('%Y-%m-%d-%H-%M')
 if len(logger.handlers) < 2:
-    filename = 'summGCN.log'
+    filename = f'summGCN_{time_str}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -49,7 +50,6 @@ parser.add_argument("--hidden", type=int, default=16,
                     help="Number of hidden units.")
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
-parser.add_argument("--gcn", default=False, action="store_true")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
@@ -73,15 +73,10 @@ logger.info(
 
 features = normalize(features)
 features_s = S.T @ features
-if args.gcn:
-    degs = np.array(A_s.sum(axis=1), dtype=np.float).flatten()
-    degs = np.power(degs, -1)
-    D_inv = ssp.diags(np.sqrt(degs))
-    adj = D_inv @ A_s @ D_inv
-else:
-    adj = R @ A_s @ R
-    # adj = (S.T @ S) @ adj
-A += ssp.diags([1] * N)
+adj = normalize(A_s)
+# adj = R @ A_s @ R
+# adj = (S.T @ S) @ adj
+A += ssp.eye(N)
 degs = np.array(A.sum(axis=1)).squeeze()
 D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
 A = D_inv @ A @ D_inv
@@ -113,36 +108,39 @@ def train(model, epochs):
     optimizer = optim.Adam(model.parameters(),
                            lr=args.lr, weight_decay=args.weight_decay)
     for epoch in range(epochs):
+        start = time.time()
         model.train()
         optimizer.zero_grad()
         embeds = model((features_s, adj))
-        embeds = torch.spmm(A, embeds)
+        # embeds = torch.spmm(A, embeds)
         output = F.log_softmax(embeds, dim=1)
 
         y_, y = output[idx_train], labels[idx_train]
         loss_train = F.nll_loss(y_, y)
         acc_train = accuracy(output[idx_train], labels[idx_train])
         loss_train.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
         optimizer.step()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
 
         model.eval()
         embeds = model((features_s, adj))
-        embeds = torch.spmm(A, embeds)
+        # embeds = torch.spmm(A, embeds)
         output = F.log_softmax(embeds, dim=1)
         y_, y = output[idx_val], labels[idx_val]
         loss_val = F.nll_loss(y_, y)
         acc_val = accuracy(y_, y)
-        if acc_val.cpu().item() >= 0.40 and acc_val.cpu().item() > max_val_acc:
+        if acc_val.cpu().item() > max_val_acc:
             max_val_acc = acc_val.cpu().item()
             best_params = model.state_dict()
+        end = time.time()
 
-        message = "{} {} {} {} {}".format(
+        message = "{} {} {} {} {} {}".format(
             "Epoch: {:04d}".format(epoch+1),
             "loss_train: {:.4f}".format(loss_train.cpu().item()),
             "acc_train: {:.4f}".format(acc_train.cpu().item()),
             "loss_val: {:.4f}".format(loss_val.cpu().item()),
-            "acc_val: {:.4f}".format(acc_val.cpu().item())
+            "acc_val: {:.4f}".format(acc_val.cpu().item()),
+            "time: {:.2f} s".format(end - start)
         )
         if args.log_turn <= 0:
             logger.debug(message)
@@ -161,9 +159,8 @@ def test(model):
     output = F.log_softmax(embeds, dim=1)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
-    print("Test set results:",
-          "loss= {:.4f}".format(loss_test.item()),
-          "accuracy= {:.4f}".format(acc_test.item()))
+    message = f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f}"
+    logger.info(message)
 
 
 if __name__ == "__main__":
@@ -173,3 +170,6 @@ if __name__ == "__main__":
     logger.info(f"Training completed, costs {time.time()-start_time} seconds.")
 
     test(model)
+    if not os.path.exists(os.path.join('output', args.dataset)):
+        os.makedirs(os.path.join('output', args.dataset))
+    pickle.dump(model.state_dict(), open(os.path.join('output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
