@@ -1,19 +1,17 @@
-from functools import total_ordering
 import logging
 import os
 import pickle
 import time
 from argparse import ArgumentParser
-from utils import load_data
 
 import numpy as np
 import scipy.sparse as ssp
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 
 from summGCN import SummGCN
-from utils import load_data, accuracy, to_torch, normalize
+from utils import accuracy, load_data, normalize, to_torch
 
 logger = logging.getLogger('summGCN')
 logger.setLevel(logging.DEBUG)
@@ -50,6 +48,8 @@ parser.add_argument("--hidden", type=int, default=16,
                     help="Number of hidden units.")
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
+parser.add_argument("--type", type=str, choices=["rw", "symm"], default="rw",
+                    help="Aggregation type")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
@@ -71,11 +71,13 @@ logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
-features = normalize(features)
+# features = normalize(features)
 features_s = S.T @ features
-adj = normalize(A_s)
-# adj = R @ A_s @ R
-# adj = (S.T @ S) @ adj
+if args.type == "rw":
+    adj = normalize(A_s)
+else:
+    adj = R @ A_s @ R
+    # adj = (S.T @ S) @ adj
 A += ssp.eye(N)
 degs = np.array(A.sum(axis=1)).squeeze()
 D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
@@ -172,4 +174,5 @@ if __name__ == "__main__":
     test(model)
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    pickle.dump(model.state_dict(), open(os.path.join('output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
+    pickle.dump(model.state_dict(), open(os.path.join(
+        'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
