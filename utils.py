@@ -4,6 +4,7 @@ import numbers
 import numpy as np
 import scipy.sparse as ssp
 import torch
+from sklearn.metrics import f1_score
 
 
 def load_data(dataset):
@@ -44,6 +45,15 @@ def accuracy(output, labels):
     correct = preds.eq(labels).double()
     correct = correct.sum()
     return correct / len(labels)
+
+
+def f1(output, labels):
+    preds = output.max(1)[1].type_as(labels)
+    y_ = preds.detach().cpu().numpy()
+    y = labels.detach().cpu().numpy()
+    f1_micro = f1_score(y, y_, average='micro')
+    f1_macro = f1_score(y, y_, average='macro')
+    return f1_micro, f1_macro
 
 
 def normalize(mx):

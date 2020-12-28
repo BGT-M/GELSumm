@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from summGCN import SummGCN
-from utils import accuracy, load_data, normalize, to_torch
+from utils import accuracy, load_data, normalize, to_torch, f1
 
 logger = logging.getLogger('summGCN')
 logger.setLevel(logging.DEBUG)
@@ -71,7 +71,7 @@ logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
-# features = normalize(features)
+features = normalize(features)
 features_s = S.T @ features
 if args.type == "rw":
     adj = normalize(A_s)
@@ -119,7 +119,7 @@ def train(model, epochs):
 
         y_, y = output[idx_train], labels[idx_train]
         loss_train = F.nll_loss(y_, y)
-        acc_train = accuracy(output[idx_train], labels[idx_train])
+        acc_train = accuracy(y_, y)
         loss_train.backward()
         optimizer.step()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
@@ -131,18 +131,21 @@ def train(model, epochs):
         y_, y = output[idx_val], labels[idx_val]
         loss_val = F.nll_loss(y_, y)
         acc_val = accuracy(y_, y)
+        f1_micro, f1_macro = f1(y_, y)
         if acc_val.cpu().item() > max_val_acc:
             max_val_acc = acc_val.cpu().item()
             best_params = model.state_dict()
         end = time.time()
 
-        message = "{} {} {} {} {} {}".format(
+        message = "{} {} {} {} {} {} {} {}".format(
             "Epoch: {:04d}".format(epoch+1),
             "loss_train: {:.4f}".format(loss_train.cpu().item()),
             "acc_train: {:.4f}".format(acc_train.cpu().item()),
             "loss_val: {:.4f}".format(loss_val.cpu().item()),
             "acc_val: {:.4f}".format(acc_val.cpu().item()),
-            "time: {:.2f} s".format(end - start)
+            "time: {:.2f} s".format(end - start),
+            "f1 micro: {:.4f}".format(f1_micro),
+            "f1 macro: {:.4f}".format(f1_macro)
         )
         if args.log_turn <= 0:
             logger.debug(message)
@@ -161,7 +164,8 @@ def test(model):
     output = F.log_softmax(embeds, dim=1)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
-    message = f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f}"
+    f1_micro, f1_macro = f1(output[idx_test], labels[idx_test])
+    message = f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}"
     logger.info(message)
 
 
