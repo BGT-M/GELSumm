@@ -14,15 +14,15 @@ def load_data(dataset):
     A = ssp.load_npz(os.path.join(dir_, "A.npz"))
     A_s = ssp.load_npz(os.path.join(dir_, "A_s.npz"))
     features = np.load(os.path.join(dir_, "feats.npy"))
-    labels = np.load(os.path.join(dir_, "full_labels.npy"))
+    labels = np.load(os.path.join(dir_, "mix_labels.npy"))
+    full_labels = np.load(os.path.join(dir_, "full_labels.npy"))
 
-    # idxs = np.load(os.path.join(dir_, "full_indices.npz"))
-    idxs = np.load(os.path.join(dir_, "few_indices.npz"))
+    idxs = np.load(os.path.join(dir_, "mix_indices.npz"))
     idx_train = idxs["train"]
     idx_val = idxs["val"]
     idx_test = idxs["test"]
 
-    return R, S, A, A_s, features, labels, idx_train, idx_val, idx_test
+    return R, S, A, A_s, features, labels, full_labels, idx_train, idx_val, idx_test
 
 
 def to_torch(x):
@@ -48,9 +48,11 @@ def accuracy(output, labels):
 
 
 def f1(output, labels):
-    preds = output.max(1)[1].type_as(labels)
-    y_ = preds.detach().cpu().numpy()
+    # outputs = output.max(1)[1].type_as(labels)
+    y_ = output.detach().cpu().numpy()
     y = labels.detach().cpu().numpy()
+    y_[y_ > 0.5] = 1
+    y_[y_ <= 0.5] = 0
     f1_micro = f1_score(y, y_, average='micro')
     f1_macro = f1_score(y, y_, average='macro')
     return f1_micro, f1_macro

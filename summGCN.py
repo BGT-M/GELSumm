@@ -22,9 +22,9 @@ class SummGCN(Module):
         output = F.dropout(output, p=self.dropout, training=self.training)
 
         output = self.layer2(output, adj)
-        embeds = torch.spmm(self.S, output)
+        # embeds = torch.spmm(self.S, output)
 
-        return embeds
+        return output
 
 
 class SummGCNLayer(Module):
