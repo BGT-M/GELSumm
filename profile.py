@@ -30,7 +30,8 @@ parser.add_argument("--hidden", type=int, default=16,
                     help="Number of hidden units.")
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
-parser.add_argument("--gcn", default=False, action="store_true")
+parser.add_argument("--type", type=str, choices=["rw", "symm"], default="rw",
+                    help="Aggregation type")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
@@ -49,14 +50,14 @@ nclass = labels.max().item() + 1
 
 features = normalize(features)
 features_s = S.T @ features
-adj = normalize(A_s)
-A += ssp.diags([1] * N)
-A = normalize(A)
-# adj = R @ A_s @ R
-# adj = (S.T @ S) @ adj
-# degs = np.array(A.sum(axis=1)).squeeze()
-# D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
-# A = D_inv @ A @ D_inv
+if args.type == "rw":
+    adj = normalize(A_s)
+else:
+    adj = R @ A_s @ R
+A += ssp.eye(N)
+degs = np.array(A.sum(axis=1)).squeeze()
+D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
+A = D_inv @ A @ D_inv
 
 S, A, adj, features_s, labels = to_torch(S), to_torch(A), to_torch(
     adj), to_torch(features_s), to_torch(labels)
@@ -97,7 +98,7 @@ if __name__ == "__main__":
         loss_train = F.nll_loss(y_, y)
         acc_train = accuracy(output[idx_train], labels[idx_train])
         loss_train.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
         optimizer.step()
     end = time.time()
     print(f"{end-start:.2f} seconds")
