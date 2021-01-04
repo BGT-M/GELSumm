@@ -71,13 +71,13 @@ logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
-features = normalize(features)
-features_s = S.T @ features
 if args.type == "rw":
     adj = normalize(A_s)
 else:
     adj = R @ A_s @ R
-    # adj = (S.T @ S) @ adj
+# features = normalize(features)
+features = (features-features.mean(axis=0))/features.std(axis=0)
+features_s = S.T @ features
 A += ssp.eye(N)
 degs = np.array(A.sum(axis=1)).squeeze()
 D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
