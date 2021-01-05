@@ -1,5 +1,6 @@
-import os
 import numbers
+import os
+import time
 
 import numpy as np
 import scipy.sparse as ssp
@@ -63,3 +64,21 @@ def normalize(mx):
     r_mat_inv = ssp.diags(r_inv)
     mx = r_mat_inv.dot(mx)
     return mx
+
+
+def aug_normalized_adjacency(adj):
+    adj = adj + ssp.eye(adj.shape[0])
+    adj = adj.tocoo()
+    row_sum = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(row_sum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_mat_inv_sqrt = ssp.diags(d_inv_sqrt)
+    return (d_mat_inv_sqrt @ adj @ d_mat_inv_sqrt).tocoo()
+
+
+def sgc_precompute(features, adj, degree):
+    t = time.time()
+    for i in range(degree):
+        features = torch.spmm(adj, features)
+    precompute_time = time.time() - t
+    return features, precompute_time

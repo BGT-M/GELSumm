@@ -7,10 +7,11 @@ from argparse import ArgumentParser
 import numpy as np
 import scipy.sparse as ssp
 import torch
+from torch.functional import norm
 import torch.nn.functional as F
 import torch.optim as optim
 
-from summGCN import SummGCN
+from models.summGCN import SummGCN
 from utils import accuracy, load_data, normalize, to_torch, f1
 
 logger = logging.getLogger('summGCN')
@@ -20,7 +21,7 @@ formatter = logging.Formatter(
 
 time_str = time.strftime('%Y-%m-%d-%H-%M')
 if len(logger.handlers) < 2:
-    filename = f'summGCN_{time_str}.log'
+    filename = f'summGCN.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -62,7 +63,7 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-R, S, A, A_s, features, labels, idx_train, idx_val, idx_test = load_data(
+R, S, adj, adj_s, features, labels, idx_train, idx_val, idx_test = load_data(
     args.dataset)
 N, d = features.shape
 n = S.shape[1]
@@ -72,26 +73,25 @@ logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 if args.type == "rw":
-    adj = normalize(A_s)
+    adj_s = normalize(adj_s)
 else:
-    adj = R @ A_s @ R
-# features = normalize(features)
-features = (features-features.mean(axis=0))/features.std(axis=0)
+    adj_s = R @ adj_s @ R
+features = (features-features.mean(axis=0)) / features.std(axis=0)
 features_s = S.T @ features
-A += ssp.eye(N)
-degs = np.array(A.sum(axis=1)).squeeze()
+adj += ssp.eye(N)
+degs = np.array(adj.sum(axis=1)).squeeze()
 D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
-A = D_inv @ A @ D_inv
+adj = D_inv @ adj @ D_inv
 
-S, A, adj, features_s, labels = to_torch(S), to_torch(A), to_torch(
-    adj), to_torch(features_s), to_torch(labels)
+S, adj, adj_s, features_s, labels = to_torch(S), to_torch(adj), to_torch(
+    adj_s), to_torch(features_s), to_torch(labels)
 idx_train, idx_val, idx_test = to_torch(
     idx_train), to_torch(idx_val), to_torch(idx_test)
 
 device = f"cuda:{gpu_id}"
 if gpu_id >= 0:
-    A = A.cuda(device)
     adj = adj.cuda(device)
+    adj_s = adj_s.cuda(device)
     S = S.cuda(device)
     features_s = features_s.cuda(device)
     labels = labels.cuda(device)
@@ -113,8 +113,7 @@ def train(model, epochs):
         start = time.time()
         model.train()
         optimizer.zero_grad()
-        embeds = model((features_s, adj))
-        # embeds = torch.spmm(A, embeds)
+        embeds = model((features_s, adj_s))
         output = F.log_softmax(embeds, dim=1)
 
         y_, y = output[idx_train], labels[idx_train]
@@ -125,8 +124,7 @@ def train(model, epochs):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
 
         model.eval()
-        embeds = model((features_s, adj))
-        # embeds = torch.spmm(A, embeds)
+        embeds = model((features_s, adj_s))
         output = F.log_softmax(embeds, dim=1)
         y_, y = output[idx_val], labels[idx_val]
         loss_val = F.nll_loss(y_, y)
@@ -160,7 +158,7 @@ def train(model, epochs):
 
 def test(model):
     model.eval()
-    embeds = model((features_s, adj))
+    embeds = model((features_s, adj_s))
     output = F.log_softmax(embeds, dim=1)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
