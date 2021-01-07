@@ -9,22 +9,19 @@ from torch.nn.modules.module import Module
 
 
 class SummGCN(Module):
-    def __init__(self, in_dim, hidden_dim, out_dim, S, dropout=0.5, bias=True):
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.5, bias=True):
         super(SummGCN, self).__init__()
         self.layer1 = SummGCNLayer(in_dim, hidden_dim, bias=bias)
         self.layer2 = SummGCNLayer(hidden_dim, out_dim, bias=bias)
-        self.S = S
         self.dropout = dropout
 
     def forward(self, inputs):
         x, adj = inputs
         output = F.relu(self.layer1(x, adj))
         output = F.dropout(output, p=self.dropout, training=self.training)
-
         output = self.layer2(output, adj)
-        embeds = torch.spmm(self.S, output)
 
-        return embeds
+        return output
 
 
 class SummGCNLayer(Module):

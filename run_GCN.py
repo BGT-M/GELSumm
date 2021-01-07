@@ -63,28 +63,30 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-R, S, adj, adj_s, features, labels, idx_train, idx_val, idx_test = load_data(
+R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(
     args.dataset)
+idx_train, idx_val, idx_test = indices['train'], indices['val'], indices['test']
 N, d = features.shape
 n = S.shape[1]
-nclass = labels.max().item() + 1
+nclass = full_labels.max().item() + 1
 logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 if args.type == "rw":
+    adj = normalize(adj)
     adj_s = normalize(adj_s)
 else:
+    adj += ssp.eye(N)
+    degs = np.array(adj.sum(axis=1)).flatten()
+    D_inv_sqrt = ssp.diags(np.power(degs, -0.5))
+    adj = D_inv_sqrt @ adj @ D_inv_sqrt
     adj_s = R @ adj_s @ R
 features = (features-features.mean(axis=0)) / features.std(axis=0)
 features_s = S.T @ features
-adj += ssp.eye(N)
-degs = np.array(adj.sum(axis=1)).squeeze()
-D_inv = ssp.diags(np.power(np.sqrt(degs), -1))
-adj = D_inv @ adj @ D_inv
 
-S, adj, adj_s, features_s, labels = to_torch(S), to_torch(adj), to_torch(
-    adj_s), to_torch(features_s), to_torch(labels)
+S, adj, adj_s, features, features_s, labels, full_labels = to_torch(S), to_torch(adj), to_torch(
+    adj_s), to_torch(features), to_torch(features_s), to_torch(labels), to_torch(full_labels)
 idx_train, idx_val, idx_test = to_torch(
     idx_train), to_torch(idx_val), to_torch(idx_test)
 
@@ -93,13 +95,15 @@ if gpu_id >= 0:
     adj = adj.cuda(device)
     adj_s = adj_s.cuda(device)
     S = S.cuda(device)
+    features = features.cuda(device)
     features_s = features_s.cuda(device)
     labels = labels.cuda(device)
+    full_labels = full_labels.cuda(device)
     idx_train = idx_train.cuda(device)
     idx_val = idx_val.cuda(device)
     idx_test = idx_test.cuda(device)
 
-model = SummGCN(d, args.hidden, nclass, S, dropout=args.dropout)
+model = SummGCN(d, args.hidden, nclass, dropout=args.dropout)
 if gpu_id >= 0:
     model = model.cuda(device)
 
@@ -113,8 +117,8 @@ def train(model, epochs):
         start = time.time()
         model.train()
         optimizer.zero_grad()
-        embeds = model((features_s, adj_s))
-        output = F.log_softmax(embeds, dim=1)
+        output = model((features_s, adj_s))
+        output = F.log_softmax(output, dim=1)
 
         y_, y = output[idx_train], labels[idx_train]
         loss_train = F.nll_loss(y_, y)
@@ -158,11 +162,15 @@ def train(model, epochs):
 
 def test(model):
     model.eval()
-    embeds = model((features_s, adj_s))
-    output = F.log_softmax(embeds, dim=1)
-    loss_test = F.nll_loss(output[idx_test], labels[idx_test])
-    acc_test = accuracy(output[idx_test], labels[idx_test])
-    f1_micro, f1_macro = f1(output[idx_test], labels[idx_test])
+    output = model((features_s, adj_s))
+    output = torch.spmm(S, output)
+    output = F.log_softmax(output, dim=1)
+    f_idx_test = full_indices['test']
+    f_idx_test = to_torch(f_idx_test)
+    y, y_ = full_labels[f_idx_test], output[f_idx_test]
+    loss_test = F.nll_loss(y_, y)
+    acc_test = accuracy(y_, y)
+    f1_micro, f1_macro = f1(y_, y)
     message = f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}"
     logger.info(message)
 

@@ -15,15 +15,13 @@ def load_data(dataset):
     A = ssp.load_npz(os.path.join(dir_, "A.npz"))
     A_s = ssp.load_npz(os.path.join(dir_, "A_s.npz"))
     features = np.load(os.path.join(dir_, "feats.npy"))
-    labels = np.load(os.path.join(dir_, "full_labels.npy"))
 
-    # idxs = np.load(os.path.join(dir_, "full_indices.npz"))
-    idxs = np.load(os.path.join(dir_, "few_indices.npz"))
-    idx_train = idxs["train"]
-    idx_val = idxs["val"]
-    idx_test = idxs["test"]
+    labels = np.load(os.path.join(dir_, "labels.npy"))
+    full_labels = np.load(os.path.join(dir_, "full_labels.npy"))
+    indices = np.load(os.path.join(dir_, "indices.npz"))
+    full_indices = np.load(os.path.join(dir_, "few_indices.npz"))
 
-    return R, S, A, A_s, features, labels, idx_train, idx_val, idx_test
+    return R, S, A, A_s, features, labels, full_labels, indices, full_indices
 
 
 def to_torch(x):
