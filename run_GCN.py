@@ -7,12 +7,11 @@ from argparse import ArgumentParser
 import numpy as np
 import scipy.sparse as ssp
 import torch
-from torch.functional import norm
 import torch.nn.functional as F
 import torch.optim as optim
 
 from models.summGCN import SummGCN
-from utils import accuracy, load_data, normalize, to_torch, f1
+from utils import accuracy, f1, load_data, normalize, to_torch
 
 logger = logging.getLogger('summGCN')
 logger.setLevel(logging.DEBUG)
@@ -21,7 +20,7 @@ formatter = logging.Formatter(
 
 time_str = time.strftime('%Y-%m-%d-%H-%M')
 if len(logger.handlers) < 2:
-    filename = f'summGCN.log'
+    filename = f'summGCN_{time_str}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -51,6 +50,8 @@ parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
 parser.add_argument("--type", type=str, choices=["rw", "symm"], default="rw",
                     help="Aggregation type")
+parser.add_argument("--degree", type=int, default=2,
+                    help="Degree of graph filter")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
@@ -164,6 +165,8 @@ def test(model):
     model.eval()
     output = model((features_s, adj_s))
     output = torch.spmm(S, output)
+    for _ in range(args.degree):
+        output = torch.spmm(adj, output)
     output = F.log_softmax(output, dim=1)
     f_idx_test = full_indices['test']
     f_idx_test = to_torch(f_idx_test)
