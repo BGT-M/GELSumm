@@ -19,17 +19,6 @@ formatter = logging.Formatter(
     '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
 
 time_str = time.strftime('%Y-%m-%d-%H-%M')
-if len(logger.handlers) < 2:
-    filename = f'summGCN_{time_str}.log'
-    file_handler = logging.FileHandler(filename, mode='a')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", required=True, type=str,
@@ -55,6 +44,19 @@ parser.add_argument("--degree", type=int, default=2,
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
+
+if len(logger.handlers) < 2:
+    filename = f'summGCN_{args.dataset}_{time_str}.log'
+    file_handler = logging.FileHandler(filename, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
 logger.debug("Args:")
 logger.debug(args)
 
@@ -146,9 +148,9 @@ def train(model, epochs):
             "acc_train: {:.4f}".format(acc_train.cpu().item()),
             "loss_val: {:.4f}".format(loss_val.cpu().item()),
             "acc_val: {:.4f}".format(acc_val.cpu().item()),
-            "time: {:.2f} s".format(end - start),
             "f1 micro: {:.4f}".format(f1_micro),
-            "f1 macro: {:.4f}".format(f1_macro)
+            "f1 macro: {:.4f}".format(f1_macro),
+            "time: {:.2f} s".format(end - start)
         )
         if args.log_turn <= 0:
             logger.debug(message)
@@ -162,8 +164,14 @@ def train(model, epochs):
 
 
 def test(model):
+    global S, adj, full_labels
     model.eval()
     output = model((features_s, adj_s))
+    output = output.cpu()
+    S = S.cpu()
+    adj = adj.cpu()
+    full_labels = full_labels.cpu()
+
     output = torch.spmm(S, output)
     for _ in range(args.degree):
         output = torch.spmm(adj, output)
@@ -187,5 +195,5 @@ if __name__ == "__main__":
     test(model)
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    pickle.dump(model.state_dict(), open(os.path.join(
-        'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
+    # pickle.dump(model.state_dict(), open(os.path.join(
+    #     'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
