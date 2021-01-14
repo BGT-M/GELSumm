@@ -195,5 +195,5 @@ if __name__ == "__main__":
     test(model)
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    # pickle.dump(model.state_dict(), open(os.path.join(
-    #     'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
+    pickle.dump(model.state_dict(), open(os.path.join(
+        'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))

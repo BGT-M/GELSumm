@@ -144,11 +144,11 @@ def learn_embeds():
 
 
 def test(dataset, embeds, lr, epochs):
-    R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(dataset)
+    adj = ssp.load_npz(os.path.join('data', dataset, 'A.npz'))
     adj = normalize(adj)
-    del R, adj_s, features, labels
+    full_labels = np.load(os.path.join('data', dataset, 'full_labels.npy'))
+    full_indices = np.load(os.path.join('data', dataset, 'full_indices.npz'))
 
-    embeds = S @ embeds
     for _ in range(2):
         embeds = adj @ embeds
     embeds = to_torch(embeds)
@@ -180,4 +180,4 @@ def test(dataset, embeds, lr, epochs):
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    # test(args.dataset, embeds, args.lr, args.epochs)
+    test(args.dataset, embeds, args.lr, args.epochs)
