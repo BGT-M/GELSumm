@@ -143,13 +143,13 @@ def learn_embeds():
     return embeds
 
 
-def test(dataset, embeds, lr, epochs):
+def test(dataset, embeds, lr, epochs, degree):
     R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(dataset)
     adj = normalize(adj)
     del R, adj_s, features, labels
 
     embeds = S @ embeds
-    for _ in range(2):
+    for _ in range(degree):
         embeds = adj @ embeds
     embeds = to_torch(embeds)
     nclass = full_labels.max() + 1
@@ -180,4 +180,4 @@ def test(dataset, embeds, lr, epochs):
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    # test(args.dataset, embeds, args.lr, args.epochs)
+    test(args.dataset, embeds, args.lr, args.epochs, args.degree)
