@@ -8,11 +8,11 @@ import numpy as np
 import scipy.sparse as ssp
 import torch.nn.functional as F
 import torch.optim as optim
-from gensim.models import Word2Vec
 
-from models import node2vec
-from models.logit_reg import LogitRegression
+from node2vec import Node2Vec
 from utils import accuracy, f1, load_data, normalize, to_torch
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
 logger = logging.getLogger('node2vec')
 logger.setLevel(logging.DEBUG)
@@ -47,14 +47,14 @@ def parse_args():
     parser.add_argument('--workers', type=int, default=8,
                         help='Number of parallel workers. Default is 8.')
 
+    parser.add_argument('--seed', type=int, default=42,
+                        help='RNG seed')
+
     parser.add_argument('--p', type=float, default=1,
                         help='Return hyperparameter. Default is 1.')
 
     parser.add_argument('--q', type=float, default=1,
                         help='Inout hyperparameter. Default is 1.')
-
-    parser.add_argument('--seed', type=int, default=42,
-                        help='RNG seed')
 
     parser.add_argument('--weighted', dest='weighted', action='store_true',
                         help='Boolean specifying (un)weighted. Default is unweighted.')
@@ -72,12 +72,15 @@ def parse_args():
 
     parser.set_defaults(directed=False)
 
+    parser.add_argument("--lr", type=float, default=0.1, help="Learning rate")
+    parser.add_argument("--epochs", type=int, default=1, help="Training epochs")
+
     return parser.parse_args()
 
 
 args = parse_args()
 if len(logger.handlers) < 2:
-    filename = f'node2vec_{args.dataset}_{time_str}.log'
+    filename = f'node2vec_{args.dataset}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -94,18 +97,23 @@ def read_graph():
     '''
     Reads the input network in networkx.
     '''
-    path = os.path.join("data", args.dataset, "adj_s.edgelist")
-    if args.weighted:
-        G = nx.read_edgelist(path, nodetype=int, data=(
-            ('weight', float),), create_using=nx.DiGraph())
-    else:
-        G = nx.read_edgelist(path, nodetype=int,
-                             create_using=nx.DiGraph())
+    path = os.path.join("data", args.dataset, "A_s.npz")
+    adj_s = ssp.load_npz(path)
+    G = nx.from_scipy_sparse_matrix(adj_s, create_using=nx.Graph())
+    # if args.weighted:
+    #     G = nx.read_edgelist(path, nodetype=int, data=(
+    #         ('weight', float),), create_using=nx.DiGraph())
+    # else:
+    #     G = nx.read_edgelist(path, nodetype=int,
+    #                          create_using=nx.DiGraph())
+    #     for edge in G.edges():
+    #         G[edge[0]][edge[1]]['weight'] = 1
+    if not args.weighted:
         for edge in G.edges():
             G[edge[0]][edge[1]]['weight'] = 1
 
-    if not args.directed:
-        G = G.to_undirected()
+    # if not args.directed:
+    #     G = G.to_undirected()
 
     return G
 
@@ -115,29 +123,29 @@ def learn_embeddings():
     Learn embeddings by optimizing the Skipgram objective using SGD.
     '''
     nx_G = read_graph()
-    G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
 
-    logger.info("Start generating walks...")
     start_time = time.time()
-    G.preprocess_transition_probs()
-    walks = G.simulate_walks(args.num_walks, args.walk_length)
-    walks = [str(walk) for walk in walks]
-
+    logger.info("Start walking...")
+    node2vec = Node2Vec(nx_G, dimensions=args.dimensions, walk_length=args.walk_length, num_walks=args.num_walks, workers=args.workers, seed=args.seed)
     logger.info("Start learning embeddings...")
-    model = Word2Vec(walks, size=args.dimensions, window=args.window_size,
-                     min_count=0, sg=1, workers=args.workers, iter=args.iter)
+    model = node2vec.fit(window=args.window_size, min_count=1, batch_words=4)
     end_time = time.time()
     logger.info("Learning completes.")
     logger.info(f"Node2vec costs {end_time-start_time} seconds")
 
-    N = len(model.wv.index2word)
-    rows, cols = [], []
+    N = nx_G.number_of_nodes()
+    embeds = np.zeros((N, args.dimensions))
+    indices = []
+    lost_indices = []
     for i in range(N):
-        j = int(model.wv.index2word[i])
-        rows.append(j)
-        cols.append(i)
-    P = ssp.csr_matrix(([1] * len(rows), (rows, cols)), shape=(N, N))
-    embeds = P @ model.wv.vectors
+        try:
+            embeds[i] = model.wv[str(i)]
+            indices.append(i)
+        except KeyError:
+            lost_indices.append(i)
+            continue
+    avg_embed = embeds[indices].mean(axis=0)
+    embeds[lost_indices] = avg_embed
     np.save(os.path.join('output', args.dataset, 'node2vec.npy'), embeds)
     return embeds
 
@@ -150,31 +158,15 @@ def test(dataset, embeds, lr, epochs):
     embeds = S @ embeds
     for _ in range(2):
         embeds = adj @ embeds
-    embeds = to_torch(embeds)
     nclass = full_labels.max() + 1
-    full_labels = to_torch(full_labels)
     train_idx, test_idx = full_indices['train'], full_indices['test']
-    train_idx, test_idx = to_torch(train_idx), to_torch(test_idx)
 
-    logit_reg = LogitRegression(embeds.shape[1], nclass)
-    optimizer = optim.LBFGS(logit_reg.parameters(), lr=lr)
-
-    logit_reg.train()
-    def closure():
-        optimizer.zero_grad()
-        output = logit_reg(embeds[train_idx])
-        loss_train = F.cross_entropy(output, full_labels[train_idx])
-        loss_train.backward()
-        return loss_train
-    for epoch in range(epochs):
-        loss_train = optimizer.step(closure)
-
-    predict = logit_reg(embeds[test_idx])
-    loss_test = F.cross_entropy(predict, full_labels[test_idx])
-    acc_test = accuracy(predict, full_labels[test_idx])
-    f1_micro, f1_macro = f1(predict, full_labels[test_idx])
-    logger.info(
-        f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}")
+    model = LogisticRegression(solver='lbfgs')
+    model.fit(embeds[train_idx], full_labels[train_idx])
+    predict = model.predict(embeds[test_idx])
+    acc_test = accuracy_score(full_labels[test_idx], predict)
+    logger.info(f"Test set results: accuracy= {acc_test:.4f}")
+    
 
 if __name__ == "__main__":
     embeds = learn_embeddings()

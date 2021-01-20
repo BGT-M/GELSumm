@@ -8,19 +8,16 @@ import numpy as np
 import scipy.sparse as ssp
 import torch.nn.functional as F
 import torch.optim as optim
-from deepwalk import graph
-from deepwalk import walks as serialized_walks
-from deepwalk.skipgram import Skipgram
 from gensim.models import Word2Vec
 
 from utils import accuracy, f1, load_data, normalize, to_torch
-from models.logit_reg import LogitRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
 logger = logging.getLogger('deepwalk')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
     '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
-time_str = time.strftime('%Y-%m-%d-%H-%M')
 
 parser = ArgumentParser("deepwalk",
                         formatter_class=ArgumentDefaultsHelpFormatter,
@@ -61,7 +58,7 @@ parser.add_argument("--epochs", type=int, default=2, help="Training epochs")
 
 args = parser.parse_args()
 if len(logger.handlers) < 2:
-    filename = f'deepwalk_{args.dataset}_{time_str}.log'
+    filename = f'deepwalk_{args.dataset}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -87,6 +84,7 @@ def learn_embeds():
         raise Exception(
             "Unknown file format: '%s'.  Valid formats: 'adjlist', 'edgelist', 'mat'" % args.format)
 
+    N = len(G.nodes())
     logger.info("Number of nodes: {}".format(len(G.nodes())))
 
     num_walks = len(G.nodes()) * args.number_walks
@@ -131,53 +129,43 @@ def learn_embeds():
     end_time = time.time()
     logger.info(f"Deepwalk learning costs {end_time-start_time:.4f} seconds")
 
-    N = len(model.wv.index2word)
-    rows, cols = [], []
+    embeds = np.zeros((N, args.representation_size))
+    indices = []
+    lost_indices = []
     for i in range(N):
-        j = int(model.wv.index2word[i])
-        rows.append(j)
-        cols.append(i)
-    P = ssp.csr_matrix(([1] * len(rows), (rows, cols)), shape=(N, N))
-    embeds = P @ model.wv.vectors
+        try:
+            embeds[i] = model.wv[str(i)]
+            indices.append(i)
+        except KeyError:
+            lost_indices.append(i)
+            continue
+    avg_embed = embeds[indices].mean(axis=0)
+    embeds[lost_indices] = avg_embed
+    if not os.path.exists(f'output/{args.dataset}'):
+        os.mkdir(f'output/{args.dataset}')
     np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
     return embeds
 
 
-def test(dataset, embeds, lr, epochs, degree):
+def test(dataset, embeds, degree):
     R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(dataset)
     adj = normalize(adj)
     del R, adj_s, features, labels
 
+    print(embeds.shape, S.shape)
     embeds = S @ embeds
     for _ in range(degree):
         embeds = adj @ embeds
-    embeds = to_torch(embeds)
     nclass = full_labels.max() + 1
-    full_labels = to_torch(full_labels)
     train_idx, test_idx = full_indices['train'], full_indices['test']
-    train_idx, test_idx = to_torch(train_idx), to_torch(test_idx)
 
-    logit_reg = LogitRegression(embeds.shape[1], nclass)
-    optimizer = optim.LBFGS(logit_reg.parameters(), lr=lr)
-
-    logit_reg.train()
-    def closure():
-        optimizer.zero_grad()
-        output = logit_reg(embeds[train_idx])
-        loss_train = F.cross_entropy(output, full_labels[train_idx])
-        loss_train.backward()
-        return loss_train
-    for epoch in range(epochs):
-        loss_train = optimizer.step(closure)
-
-    predict = logit_reg(embeds[test_idx])
-    loss_test = F.cross_entropy(predict, full_labels[test_idx])
-    acc_test = accuracy(predict, full_labels[test_idx])
-    f1_micro, f1_macro = f1(predict, full_labels[test_idx])
-    logger.info(
-        f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}")
+    model = LogisticRegression(solver='lbfgs')
+    model.fit(embeds[train_idx], full_labels[train_idx])
+    predict = model.predict(embeds[test_idx])
+    acc_test = accuracy_score(full_labels[test_idx], predict)
+    logger.info(f"Test set results: accuracy= {acc_test:.4f}")
 
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    test(args.dataset, embeds, args.lr, args.epochs, args.degree)
+    test(args.dataset, embeds, args.degree)

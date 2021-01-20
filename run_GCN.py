@@ -24,7 +24,7 @@ parser = ArgumentParser()
 parser.add_argument("--dataset", required=True, type=str,
                     help="Dataset name.")
 parser.add_argument("--cuda", type=int, default=-1,
-                    help="GPU id(-1 to use cpu).")
+                    help="GPU id (-1 to use cpu).")
 parser.add_argument("--seed", type=int, default=42,
                     help="Random seed.")
 parser.add_argument("--epochs", type=int, default=200,
@@ -128,7 +128,6 @@ def train(model, epochs):
         acc_train = accuracy(y_, y)
         loss_train.backward()
         optimizer.step()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
 
         model.eval()
         embeds = model((features_s, adj_s))

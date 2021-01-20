@@ -14,13 +14,13 @@ from deepwalk.skipgram import Skipgram
 from gensim.models import Word2Vec
 
 from utils import accuracy, f1, load_data, normalize, to_torch
-from models.logit_reg import LogitRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
-logger = logging.getLogger('deepwalk')
+logger = logging.getLogger('deepwalk2')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
     '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
-time_str = time.strftime('%Y-%m-%d-%H-%M')
 
 parser = ArgumentParser("deepwalk",
                         formatter_class=ArgumentDefaultsHelpFormatter,
@@ -61,7 +61,7 @@ parser.add_argument("--epochs", type=int, default=2, help="Training epochs")
 
 args = parser.parse_args()
 if len(logger.handlers) < 2:
-    filename = f'deepwalk_{args.dataset}_{time_str}.log'
+    filename = f'deepwalk2_{args.dataset}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -144,39 +144,17 @@ def learn_embeds():
 
 
 def test(dataset, embeds, lr, epochs):
-    adj = ssp.load_npz(os.path.join('data', dataset, 'A.npz'))
-    adj = normalize(adj)
     full_labels = np.load(os.path.join('data', dataset, 'full_labels.npy'))
     full_indices = np.load(os.path.join('data', dataset, 'full_indices.npz'))
 
-    for _ in range(2):
-        embeds = adj @ embeds
-    embeds = to_torch(embeds)
     nclass = full_labels.max() + 1
-    full_labels = to_torch(full_labels)
     train_idx, test_idx = full_indices['train'], full_indices['test']
-    train_idx, test_idx = to_torch(train_idx), to_torch(test_idx)
 
-    logit_reg = LogitRegression(embeds.shape[1], nclass)
-    optimizer = optim.LBFGS(logit_reg.parameters(), lr=lr)
-
-    logit_reg.train()
-    def closure():
-        optimizer.zero_grad()
-        output = logit_reg(embeds[train_idx])
-        loss_train = F.cross_entropy(output, full_labels[train_idx])
-        loss_train.backward()
-        return loss_train
-    for epoch in range(epochs):
-        loss_train = optimizer.step(closure)
-
-    predict = logit_reg(embeds[test_idx])
-    loss_test = F.cross_entropy(predict, full_labels[test_idx])
-    acc_test = accuracy(predict, full_labels[test_idx])
-    f1_micro, f1_macro = f1(predict, full_labels[test_idx])
-    logger.info(
-        f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}")
-
+    model = LogisticRegression(solver='lbfgs')
+    model.fit(embeds[train_idx], full_labels[train_idx])
+    predict = model.predict(embeds[test_idx])
+    acc_test = accuracy_score(full_labels[test_idx], predict)
+    logger.info(f"Test set results: accuracy= {acc_test:.4f}")
 
 if __name__ == "__main__":
     embeds = learn_embeds()

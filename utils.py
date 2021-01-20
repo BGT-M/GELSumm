@@ -19,7 +19,7 @@ def load_data(dataset):
     labels = np.load(os.path.join(dir_, "labels.npy"))
     full_labels = np.load(os.path.join(dir_, "full_labels.npy"))
     indices = np.load(os.path.join(dir_, "indices.npz"))
-    full_indices = np.load(os.path.join(dir_, "few_indices.npz"))
+    full_indices = np.load(os.path.join(dir_, "full_indices.npz"))
 
     return R, S, A, A_s, features, labels, full_labels, indices, full_indices
 
