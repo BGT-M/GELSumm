@@ -39,10 +39,11 @@ parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
 parser.add_argument("--type", type=str, choices=["rw", "symm"], default="rw",
                     help="Aggregation type")
-parser.add_argument("--degree", type=int, default=2,
-                    help="Degree of graph filter")
+parser.add_argument("--power", type=int, default=2,
+                    help="Power of graph filter")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
+parser.add_argument("--degree", action="store_true", default=True, help="Whether to use CR reconstruction")
 args = parser.parse_args()
 
 if len(logger.handlers) < 2:
@@ -172,7 +173,7 @@ def test(model):
     full_labels = full_labels.cpu()
 
     output = torch.spmm(S, output)
-    for _ in range(args.degree):
+    for _ in range(args.power):
         output = torch.spmm(adj, output)
     output = F.log_softmax(output, dim=1)
     f_idx_test = full_indices['test']
