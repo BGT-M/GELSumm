@@ -4,14 +4,13 @@ import random
 import time
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
+import networkx as nx
 import numpy as np
 import scipy.sparse as ssp
 import torch.nn.functional as F
 import torch.optim as optim
-from deepwalk import graph
-from deepwalk import walks as serialized_walks
-from deepwalk.skipgram import Skipgram
 from gensim.models import Word2Vec
+from models.deepwalk import deepwalk
 
 from utils import accuracy, f1, load_data, normalize, to_torch
 from sklearn.linear_model import LogisticRegression
@@ -74,76 +73,20 @@ if len(logger.handlers) < 2:
 logger.debug(args)
 
 def learn_embeds():
-    if args.format == "adjlist":
-        path = os.path.join("data", args.dataset, "adj_s.adjlist")
-        G = graph.load_adjacencylist(path, undirected=args.undirected)
-    elif args.format == "edgelist":
-        path = os.path.join("data", args.dataset, "adj_s.edgelist")
-        G = graph.load_edgelist(path, undirected=args.undirected)
-    elif args.format == "mat":
-        path = os.path.join("data", args.dataset, "adj_s.mat")
-        G = graph.load_matfile(path, variable_name=args.matfile_variable_name, undirected=args.undirected)
-    else:
-        raise Exception(
-            "Unknown file format: '%s'.  Valid formats: 'adjlist', 'edgelist', 'mat'" % args.format)
-
-    logger.info("Number of nodes: {}".format(len(G.nodes())))
-
-    num_walks = len(G.nodes()) * args.number_walks
-
-    logger.info("Number of walks: {}".format(num_walks))
-
-    data_size = num_walks * args.walk_length
-
-    logger.info("Data size (walks*length): {}".format(data_size))
-
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A.npz'))
+    G = nx.from_scipy_sparse_matrix(adj, edge_attribute='wgt', create_using=nx.Graph())
     start_time = time.time()
-    if data_size < args.max_memory_data_size:
-        logger.info("Walking...")
-        walks = graph.build_deepwalk_corpus(G, num_paths=args.number_walks,
-                                            path_length=args.walk_length, alpha=0, rand=random.Random(args.seed))
-        logger.info("Training...")
-        model = Word2Vec(walks, size=args.representation_size,
-                         window=args.window_size, min_count=0, sg=1, hs=1, workers=args.workers)
-    else:
-        logger.info("Data size {} is larger than limit (max-memory-data-size: {}).  Dumping walks to disk.".format(
-            data_size, args.max_memory_data_size))
-        logger.info("Walking...")
-
-        walks_filebase = args.dataset + ".walks"
-        walk_files = serialized_walks.write_walks_to_disk(G, walks_filebase, num_paths=args.number_walks,
-                                                          path_length=args.walk_length, alpha=0, rand=random.Random(args.seed),
-                                                          num_workers=args.workers)
-
-        logger.info("Counting vertex frequency...")
-        if not args.vertex_freq_degree:
-            vertex_counts = serialized_walks.count_textfiles(
-                walk_files, args.workers)
-        else:
-            # use degree distribution for frequency in tree
-            vertex_counts = G.degree(nodes=G.iterkeys())
-
-        logger.info("Training...")
-        walks_corpus = serialized_walks.WalksCorpus(walk_files)
-        model = Skipgram(sentences=walks_corpus, vocabulary_counts=vertex_counts,
-                         size=args.representation_size,
-                         window=args.window_size, min_count=0, trim_rule=None, workers=args.workers)
+    embeds = deepwalk(G, args.seed)
     end_time = time.time()
     logger.info(f"Deepwalk learning costs {end_time-start_time:.4f} seconds")
 
-    N = len(model.wv.index2word)
-    rows, cols = [], []
-    for i in range(N):
-        j = int(model.wv.index2word[i])
-        rows.append(j)
-        cols.append(i)
-    P = ssp.csr_matrix(([1] * len(rows), (rows, cols)), shape=(N, N))
-    embeds = P @ model.wv.vectors
+    if not os.path.exists(f'output/{args.dataset}'):
+        os.mkdir(f'output/{args.dataset}')
     np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
     return embeds
 
 
-def test(dataset, embeds, lr, epochs):
+def test(dataset, embeds):
     full_labels = np.load(os.path.join('data', dataset, 'full_labels.npy'))
     full_indices = np.load(os.path.join('data', dataset, 'full_indices.npz'))
 
@@ -158,4 +101,4 @@ def test(dataset, embeds, lr, epochs):
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    test(args.dataset, embeds, args.lr, args.epochs)
+    test(args.dataset, embeds)
