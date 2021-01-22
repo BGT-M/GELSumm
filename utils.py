@@ -8,10 +8,13 @@ import torch
 from sklearn.metrics import f1_score
 
 
-def load_data(dataset):
+def load_data(dataset, deg):
     dir_ = os.path.join("./data", dataset)
     R = ssp.load_npz(os.path.join(dir_, "R.npz"))
-    S = ssp.load_npz(os.path.join(dir_, "S.npz"))
+    if deg:
+        S = ssp.load_npz(os.path.join(dir_, "S.npz"))
+    else:
+        S = ssp.load_npz(os.path.join(dir_, "S2.npz"))
     A = ssp.load_npz(os.path.join(dir_, "A.npz"))
     A_s = ssp.load_npz(os.path.join(dir_, "A_s.npz"))
     features = np.load(os.path.join(dir_, "feats.npy"))

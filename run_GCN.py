@@ -43,7 +43,7 @@ parser.add_argument("--power", type=int, default=2,
                     help="Power of graph filter")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
-parser.add_argument("--degree", action="store_true", default=True, help="Whether to use CR reconstruction")
+parser.add_argument("--degree", action="store_true", default=False, help="Whether to use CR reconstruction")
 args = parser.parse_args()
 
 if len(logger.handlers) < 2:
@@ -68,7 +68,7 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
 R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(
-    args.dataset)
+    args.dataset, args.degree)
 idx_train, idx_val, idx_test = indices['train'], indices['val'], indices['test']
 N, d = features.shape
 n = S.shape[1]
@@ -78,6 +78,7 @@ logger.info(
     f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 if args.type == "rw":
+    adj += ssp.eye(N)
     adj = normalize(adj)
     adj_s = normalize(adj_s)
 else:
