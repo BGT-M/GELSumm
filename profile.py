@@ -1,7 +1,7 @@
 from functools import total_ordering
 import time
 from argparse import ArgumentParser
-from utils import load_data
+from utils import load_dataset
 
 import numpy as np
 import scipy.sparse as ssp
@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch.autograd import profiler
 
 from summGCN import SummGCN
-from utils import load_data, accuracy, to_torch, normalize
+from utils import load_dataset, accuracy, to_torch, normalize
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", required=True, type=str,
@@ -42,7 +42,7 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-R, S, A, A_s, features, labels, idx_train, idx_val, idx_test = load_data(
+R, S, A, A_s, features, labels, idx_train, idx_val, idx_test = load_dataset(
     args.dataset)
 N, d = features.shape
 n = S.shape[1]

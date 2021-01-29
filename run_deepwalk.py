@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from gensim.models import Word2Vec
 
-from utils import accuracy, f1, load_data, normalize, to_torch
+from utils import accuracy, f1, load_dataset, aug_normalized_adjacency, to_torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from models.deepwalk import deepwalk
@@ -53,30 +53,35 @@ logger.debug(args)
 
 
 def learn_embeds():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz'))
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
+    # adj = ssp.csr_matrix(([1]*len(adj.indices), adj.indices, adj.indptr), dtype=np.int, shape=adj.shape)
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='wgt', create_using=nx.Graph())
-    start_time = time.time()
+    start_time = time.perf_counter()
     embeds = deepwalk(G, args.seed)
-    end_time = time.time()
+    end_time = time.perf_counter()
     logger.info(f"Deepwalk learning costs {end_time-start_time:.4f} seconds")
 
     if not os.path.exists(f'output/{args.dataset}'):
         os.mkdir(f'output/{args.dataset}')
     np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
-    return embeds
+    return embeds, end_time - start_time
 
 
 def test(dataset, embeds, power):
-    R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(dataset)
-    adj = normalize(adj)
-    del R, adj_s, features, labels
+    adj, adj_s, features, labels, full_labels, indices, full_indices = load_dataset(dataset)
+    filter = aug_normalized_adjacency(adj)
+    del adj_s, features, labels, indices
+    R = ssp.load_npz(f'data/{args.dataset}/S.npz')
 
-    print(embeds.shape, S.shape)
-    embeds = S @ embeds
+    print(embeds.shape, R.shape)
+    start_time = time.perf_counter()
+    embeds = R @ embeds
     for _ in range(power):
-        embeds = adj @ embeds
-    nclass = full_labels.max() + 1
-    train_idx, test_idx = full_indices['train'], full_indices['test']
+        embeds = filter @ embeds
+    end_time = time.perf_counter()
+    logger.info(f"Refinement costs {end_time-start_time:.4f} seconds")
+    
+    train_idx, val_idx, test_idx = full_indices['train'], full_indices['val'], full_indices['test']
 
     model = LogisticRegression(solver='lbfgs')
     model.fit(embeds[train_idx], full_labels[train_idx])
@@ -84,7 +89,10 @@ def test(dataset, embeds, power):
     acc_test = accuracy_score(full_labels[test_idx], predict)
     logger.info(f"Test set results: accuracy= {acc_test:.4f}")
 
+    return end_time - start_time
+
 
 if __name__ == "__main__":
-    embeds = learn_embeds()
-    test(args.dataset, embeds, args.power)
+    embeds, embeds_time = learn_embeds()
+    refine_time = test(args.dataset, embeds, args.power)
+    logger.info(f"Total time: {embeds_time + refine_time}")

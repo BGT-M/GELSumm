@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from models.summSGC import SummSGC
-from utils import accuracy, aug_normalized_adjacency, load_data, normalize, sgc_precompute, to_torch, f1
+from utils import accuracy, aug_normalized_adjacency, load_dataset, normalize, sgc_precompute, to_torch, f1
 
 logger = logging.getLogger('summSGC')
 logger.setLevel(logging.DEBUG)
@@ -56,7 +56,7 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-_, S, adj, adj_s, features, labels, idx_train, idx_val, idx_test = load_data(
+_, S, adj, adj_s, features, labels, idx_train, idx_val, idx_test = load_dataset(
     args.dataset)
 N, d = features.shape
 n = S.shape[1]

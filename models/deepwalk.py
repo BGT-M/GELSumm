@@ -1,20 +1,21 @@
 from gensim.models import Word2Vec
 import numpy as np
 import multiprocessing as mp
+import time
 
 
-def deepwalk(graph, seed):
-    args = DeepWalkSetting(seed)
+def deepwalk(graph):
+    args = DeepWalkSetting()
     return DeepWalk_Original(args, embed_dim=args.embed_dim, workers=args.workers, graph=graph, ).get_embeddings()
 
 class DeepWalkSetting:
     '''Configuration parameters for DeepWalk.'''
-    def __init__(self, seed):
+    def __init__(self):
         self.walk_length = 80
         self.number_walks = 10  
         self.window_size = 10
         self.epoch = 5
-        self.seed = seed
+        self.seed = int(time.time())
         self.workers = 20
         self.embed_dim = 128
 

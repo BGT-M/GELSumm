@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from models.summGCN import SummGCN
-from utils import accuracy, f1, load_data, normalize, to_torch
+from utils import accuracy, f1, load_dataset, normalize, to_torch
 
 logger = logging.getLogger('summGCN')
 logger.setLevel(logging.DEBUG)
@@ -33,17 +33,16 @@ parser.add_argument("--lr", type=float, default=0.01,
                     help="Initial learning rate.")
 parser.add_argument("--weight_decay", type=float, default=5e-4,
                     help="Weight decay (L2 loss on parameters).")
-parser.add_argument("--hidden", type=int, default=16,
+parser.add_argument("--hidden", type=int, default=128,
                     help="Number of hidden units.")
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
-parser.add_argument("--type", type=str, choices=["rw", "symm"], default="rw",
+parser.add_argument("--type", type=str, choices=["rw", "symm"], default="symm",
                     help="Aggregation type")
 parser.add_argument("--power", type=int, default=2,
                     help="Power of graph filter")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
-parser.add_argument("--degree", action="store_true", default=False, help="Whether to use CR reconstruction")
 args = parser.parse_args()
 
 if len(logger.handlers) < 2:
@@ -67,28 +66,31 @@ if not torch.cuda.is_available():
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-R, S, adj, adj_s, features, labels, full_labels, indices, full_indices = load_data(
-    args.dataset, args.degree)
+adj, adj_s, features, labels, full_labels, indices, full_indices = load_dataset(args.dataset)
 idx_train, idx_val, idx_test = indices['train'], indices['val'], indices['test']
 N, d = features.shape
-n = S.shape[1]
+n = len(labels)
 nclass = full_labels.max().item() + 1
 logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
-logger.info(
-    f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
+logger.info(f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
+features = (features-features.mean(axis=0)) / features.std(axis=0)
+S = ssp.load_npz(f'data/{args.dataset}/S.npz')
 if args.type == "rw":
     adj += ssp.eye(N)
     adj = normalize(adj)
     adj_s = normalize(adj_s)
+    Q = S.power(2)
+    S = ssp.csr_matrix(([1]*len(S.data), S.indices, S.indptr), shape=S.shape, dtype=np.int8)
+    features_s = S.T @ features
 else:
     adj += ssp.eye(N)
     degs = np.array(adj.sum(axis=1)).flatten()
     D_inv_sqrt = ssp.diags(np.power(degs, -0.5))
-    adj = D_inv_sqrt @ adj @ D_inv_sqrt
+    adj = D_inv_sqrt @ (adj @ D_inv_sqrt)
+    R = ssp.load_npz(f'data/{args.dataset}/R.npz')
     adj_s = R @ adj_s @ R
-features = (features-features.mean(axis=0)) / features.std(axis=0)
-features_s = S.T @ features
+    features_s = S.T @ features
 
 S, adj, adj_s, features, features_s, labels, full_labels = to_torch(S), to_torch(adj), to_torch(
     adj_s), to_torch(features), to_torch(features_s), to_torch(labels), to_torch(full_labels)
@@ -118,8 +120,8 @@ def train(model, epochs):
     best_params = None
     optimizer = optim.Adam(model.parameters(),
                            lr=args.lr, weight_decay=args.weight_decay)
+    start_time = time.perf_counter()
     for epoch in range(epochs):
-        start = time.time()
         model.train()
         optimizer.zero_grad()
         output = model((features_s, adj_s))
@@ -141,17 +143,15 @@ def train(model, epochs):
         if acc_val.cpu().item() > max_val_acc:
             max_val_acc = acc_val.cpu().item()
             best_params = model.state_dict()
-        end = time.time()
 
-        message = "{} {} {} {} {} {} {} {}".format(
+        message = "{} {} {} {} {} {} {}".format(
             "Epoch: {:04d}".format(epoch+1),
             "loss_train: {:.4f}".format(loss_train.cpu().item()),
             "acc_train: {:.4f}".format(acc_train.cpu().item()),
             "loss_val: {:.4f}".format(loss_val.cpu().item()),
             "acc_val: {:.4f}".format(acc_val.cpu().item()),
             "f1 micro: {:.4f}".format(f1_micro),
-            "f1 macro: {:.4f}".format(f1_macro),
-            "time: {:.2f} s".format(end - start)
+            "f1 macro: {:.4f}".format(f1_macro)
         )
         if args.log_turn <= 0:
             logger.debug(message)
@@ -161,7 +161,9 @@ def train(model, epochs):
             logger.debug(message)
 
         optimizer.step()
+    end_time = time.perf_counter()
     model.load_state_dict(best_params)
+    return end_time - start_time
 
 
 def test(model):
@@ -189,12 +191,11 @@ def test(model):
 
 if __name__ == "__main__":
     logger.info("Start training...")
-    start_time = time.time()
-    train(model, args.epochs)
-    logger.info(f"Training completed, costs {time.time()-start_time} seconds.")
+    train_time = train(model, args.epochs)
+    logger.info(f"Training completed, costs {train_time} seconds.")
 
     test(model)
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    pickle.dump(model.state_dict(), open(os.path.join(
-        'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))
+    #pickle.dump(model.state_dict(), open(os.path.join(
+    #    'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))

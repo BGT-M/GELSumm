@@ -8,13 +8,8 @@ import torch
 from sklearn.metrics import f1_score
 
 
-def load_data(dataset, deg):
+def load_dataset(dataset):
     dir_ = os.path.join("./data", dataset)
-    R = ssp.load_npz(os.path.join(dir_, "R.npz"))
-    if deg:
-        S = ssp.load_npz(os.path.join(dir_, "S.npz"))
-    else:
-        S = ssp.load_npz(os.path.join(dir_, "S2.npz"))
     A = ssp.load_npz(os.path.join(dir_, "A.npz"))
     A_s = ssp.load_npz(os.path.join(dir_, "A_s.npz"))
     features = np.load(os.path.join(dir_, "feats.npy"))
@@ -24,7 +19,7 @@ def load_data(dataset, deg):
     indices = np.load(os.path.join(dir_, "indices.npz"))
     full_indices = np.load(os.path.join(dir_, "full_indices.npz"))
 
-    return R, S, A, A_s, features, labels, full_labels, indices, full_indices
+    return A, A_s, features, labels, full_labels, indices, full_indices
 
 
 def to_torch(x):
@@ -74,7 +69,7 @@ def aug_normalized_adjacency(adj):
     d_inv_sqrt = np.power(row_sum, -0.5).flatten()
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = ssp.diags(d_inv_sqrt)
-    return (d_mat_inv_sqrt @ adj @ d_mat_inv_sqrt).tocoo()
+    return (d_mat_inv_sqrt @ adj @ d_mat_inv_sqrt)
 
 
 def sgc_precompute(features, adj, degree):
