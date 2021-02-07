@@ -37,10 +37,10 @@ parser.add_argument("--hidden", type=int, default=128,
                     help="Number of hidden units.")
 parser.add_argument("--dropout", type=float, default=0.5,
                     help="Dropout rate (1 - keep probability).")
+parser.add_argument("--power", type=int, default=5,
+                    help="Maximum power of filter")
 parser.add_argument("--type", type=str, choices=["rw", "symm"], default="symm",
                     help="Aggregation type")
-parser.add_argument("--power", type=int, default=2,
-                    help="Power of graph filter")
 parser.add_argument("--log_turn", type=int, default=10,
                     help="Number of turn to log")
 args = parser.parse_args()
@@ -75,24 +75,24 @@ logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 features = (features-features.mean(axis=0)) / features.std(axis=0)
-S = ssp.load_npz(f'data/{args.dataset}/S.npz')
+R = ssp.load_npz(f'data/{args.dataset}/R.npz')
 if args.type == "rw":
     adj += ssp.eye(N)
     adj = normalize(adj)
     adj_s = normalize(adj_s)
-    Q = S.power(2)
-    S = ssp.csr_matrix(([1]*len(S.data), S.indices, S.indptr), shape=S.shape, dtype=np.int8)
-    features_s = S.T @ features
+    Q = R.power(2)
+    R = ssp.csr_matrix(([1]*len(R.data), R.indices, R.indptr), shape=R.shape, dtype=np.int8)
+    features_s = R.T @ features
 else:
     adj += ssp.eye(N)
     degs = np.array(adj.sum(axis=1)).flatten()
     D_inv_sqrt = ssp.diags(np.power(degs, -0.5))
     adj = D_inv_sqrt @ (adj @ D_inv_sqrt)
-    R = ssp.load_npz(f'data/{args.dataset}/R.npz')
-    adj_s = R @ adj_s @ R
-    features_s = S.T @ features
+    Ds_inv = ssp.load_npz(f'data/{args.dataset}/Ds_inv.npz')
+    adj_s = Ds_inv @ (adj_s @ Ds_inv)
+    features_s = R.T @ features
 
-S, adj, adj_s, features, features_s, labels, full_labels = to_torch(S), to_torch(adj), to_torch(
+R, adj, adj_s, features, features_s, labels, full_labels = to_torch(R), to_torch(adj), to_torch(
     adj_s), to_torch(features), to_torch(features_s), to_torch(labels), to_torch(full_labels)
 idx_train, idx_val, idx_test = to_torch(
     idx_train), to_torch(idx_val), to_torch(idx_test)
@@ -101,7 +101,7 @@ device = f"cuda:{gpu_id}"
 if gpu_id >= 0:
     adj = adj.cuda(device)
     adj_s = adj_s.cuda(device)
-    S = S.cuda(device)
+    R = R.cuda(device)
     features = features.cuda(device)
     features_s = features_s.cuda(device)
     labels = labels.cuda(device)
@@ -166,18 +166,21 @@ def train(model, epochs):
     return end_time - start_time
 
 
-def test(model):
-    global S, adj, full_labels
+def test(model, power):
+    global R, adj, full_labels
     model.eval()
     output = model((features_s, adj_s))
     output = output.cpu()
-    S = S.cpu()
+    R = R.cpu()
     adj = adj.cpu()
     full_labels = full_labels.cpu()
 
-    output = torch.spmm(S, output)
-    for _ in range(args.power):
+    start = time.perf_counter()
+    output = torch.spmm(R, output)
+    for _ in range(power):
         output = torch.spmm(adj, output)
+    end = time.perf_counter()
+
     output = F.log_softmax(output, dim=1)
     f_idx_test = full_indices['test']
     f_idx_test = to_torch(f_idx_test)
@@ -188,13 +191,17 @@ def test(model):
     message = f"Test set results: loss= {loss_test.item():.4f} accuracy= {acc_test.item():.4f} f1 micro= {f1_micro:.4f} f1 macro= {f1_macro:.4f}"
     logger.info(message)
 
+    return end - start
 
 if __name__ == "__main__":
     logger.info("Start training...")
     train_time = train(model, args.epochs)
     logger.info(f"Training completed, costs {train_time} seconds.")
 
-    test(model)
+    for p in range(args.power):
+        refine_time = test(model, p)
+        logger.info(f"Refinement costs {refine_time} seconds.")
+        logger.info(f"Total time: {refine_time+train_time} seconds.")
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
     #pickle.dump(model.state_dict(), open(os.path.join(

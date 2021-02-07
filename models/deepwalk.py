@@ -1,7 +1,8 @@
-from gensim.models import Word2Vec
-import numpy as np
 import multiprocessing as mp
 import time
+
+import numpy as np
+from gensim.models import Word2Vec
 
 
 def deepwalk(graph):
@@ -58,13 +59,13 @@ class DeepWalk_Original(object):
                         wgts = []
                         for key in graph[curr_idx]:
                             neigh.append(key)
-                            wgts.append(graph[curr_idx][key]['wgt'])
+                            wgts.append(graph[curr_idx][key]['weight'])
                         if len(neigh) == 0:
                             path.append(curr_idx)
                         else:
                             wgts = []
                             for key in graph[curr_idx]:
-                                wgts.append(graph[curr_idx][key]['wgt'])
+                                wgts.append(graph[curr_idx][key]['weight'])
                             path.append(np.random.choice(neigh, p= np.asarray(wgts) / float(sum(wgts))))
                     all_paths.append(list(map(str, path)))
             return_dict[proc_begin] = all_paths

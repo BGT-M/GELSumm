@@ -11,21 +11,20 @@ from models.deepwalk import deepwalk
 
 from utils import accuracy, f1, normalize, to_torch, aug_normalized_adjacency
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.model_selection import KFold
 
-logger = logging.getLogger('deepwalk_baseline')
+logger = logging.getLogger('deepwalk_lp_baseline')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
     '%(asctime)s %(filename)s %(lineno)d %(levelname)s: %(message)s')
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, help="Dataset name")
-                    help='Number of parallel processes.')
-parser.add_argument("--power", type=int, default=8, help="Maximum power of filter")
 
 args = parser.parse_args()
 if len(logger.handlers) < 2:
-    filename = f'deepwalk_baseline_{args.dataset}.log'
+    filename = f'deepwalk_baseline_lp_{args.dataset}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -51,24 +50,32 @@ def learn_embeds():
     return embeds
 
 
-def test(dataset, embeds, power):
-    adj = ssp.load_npz(f'/data/{dataset}/adj.npz')
-    adj = aug_normalized_adjacency(adj)
-    for _ in range(power):
-        embeds = adj @ embeds
+def test(dataset, embeds):
+    positive = np.load(f'/data/{args.dataset}/positive.npy').astype(np.int)
+    negative = np.load(f'/data/{args.dataset}/negative.npy').astype(np.int)
+    pos_embeds = []
+    neg_embeds = []
+    pos_labels = np.array([1] * len(positive))
+    neg_labels = np.array([0] * len(negative))
+    for i, j in positive:
+        pos_embeds.append(np.multiply(embeds[i], embeds[j]))
+    for i, j in negative:
+        neg_embeds.append(np.multiply(embeds[i], embeds[j]))
+    pos_embeds, neg_embeds = np.array(pos_embeds), np.array(neg_embeds)
+    X = np.concatenate([pos_embeds, neg_embeds])
+    y = np.concatenate([pos_labels, neg_labels])
 
-    full_labels = np.load(os.path.join('/data', dataset, 'labels.npy'))
-    full_indices = np.load(os.path.join('/data', dataset, 'indices.npz'))
-
-    train_idx, test_idx = full_indices['train'], full_indices['test']
-
-    model = LogisticRegression(solver='lbfgs')
-    model.fit(embeds[train_idx], full_labels[train_idx])
-    predict = model.predict(embeds[test_idx])
-    acc_test = accuracy_score(full_labels[test_idx], predict)
-    logger.info(f"Test set results: accuracy= {acc_test:.4f}")
+    kfold = KFold(n_splits=5, shuffle=True, random_state=42)
+    scores = 0.0
+    for train_id, test_id in kfold.split(X):
+        logit = LogisticRegression(random_state=42)
+        logit.fit(X[train_id], y[train_id])
+        probs = logit.predict_proba(X[test_id])[:, 1]
+        auc_score = roc_auc_score(y[test_id], probs)
+        scores += auc_score
+        logger.debug(f'auc score: {auc_score}')
+    logger.info(f'Average auc score: {scores / 5}')
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    for p in range(args.power):
-        test(args.dataset, embeds, p)
+    test(args.dataset, embeds)
