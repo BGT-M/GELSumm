@@ -1,1 +1,1 @@
-# SummGCN
+# GELSumm
