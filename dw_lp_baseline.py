@@ -39,6 +39,8 @@ logger.debug(args)
 def learn_embeds():
     adj = ssp.load_npz(os.path.join('/data', args.dataset, 'adj.npz'))
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
+    del adj
+    logger.info("Start training DeepWalk...")
     start_time = time.perf_counter()
     embeds = deepwalk(G)
     end_time = time.perf_counter()

@@ -45,6 +45,8 @@ logger.debug(args)
 def learn_embeds_dw():
     adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
+    del adj
+    logger.info("Start training DeepWalk...")
     start_time = time.perf_counter()
     embeds = deepwalk(G)
     end_time = time.perf_counter()
@@ -59,6 +61,8 @@ def learn_embeds_dw():
 def learn_embeds_line():
     adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
+    del adj
+    logger.info("Start training LINE...")
     start_time = time.perf_counter()
     embeds = run_LINE(G, 100, 5)
     end_time = time.perf_counter()

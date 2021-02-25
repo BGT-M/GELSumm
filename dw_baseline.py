@@ -20,7 +20,6 @@ formatter = logging.Formatter(
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, help="Dataset name")
-                    help='Number of parallel processes.')
 parser.add_argument("--power", type=int, default=8, help="Maximum power of filter")
 
 args = parser.parse_args()
@@ -40,6 +39,8 @@ logger.debug(args)
 def learn_embeds():
     adj = ssp.load_npz(os.path.join('/data', args.dataset, 'adj.npz'))
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
+    del adj
+    logger.info("Start training DeepWalk...")
     start_time = time.perf_counter()
     embeds = deepwalk(G)
     end_time = time.perf_counter()
@@ -56,6 +57,7 @@ def test(dataset, embeds, power):
     adj = aug_normalized_adjacency(adj)
     for _ in range(power):
         embeds = adj @ embeds
+    del adj
 
     full_labels = np.load(os.path.join('/data', dataset, 'labels.npy'))
     full_indices = np.load(os.path.join('/data', dataset, 'indices.npz'))

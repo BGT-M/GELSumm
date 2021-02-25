@@ -44,6 +44,8 @@ def learn_embeds_dw():
     adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     G.remove_edges_from(nx.selfloop_edges(G))
+    del adj
+    logger.info("Start training DeepWalk...")
     start_time = time.perf_counter()
     embeds = deepwalk(G)
     end_time = time.perf_counter()
@@ -58,9 +60,11 @@ def learn_embeds_dw():
 def learn_embeds_line():
     adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
-    start_time = time.perf_counter()
+    del adj
+    logger.info("Start training LINE...")
+    start_time = time.process_time()
     embeds = run_LINE(G, args.epochs, 5)
-    end_time = time.perf_counter()
+    end_time = time.process_time()
     logger.info(f"LINE learning costs {end_time-start_time:.4f} seconds")
 
     if not os.path.exists(f'output/{args.dataset}'):
@@ -79,21 +83,26 @@ def load_embeds_line():
 
 
 def test_node_classification(dataset, embeds, power):
-    adj, adj_s, features, labels, full_labels, indices, full_indices = load_dataset(dataset)
+    # adj, adj_s, features, labels, full_labels, indices, full_indices = load_dataset(dataset)
+    adj = ssp.load_npz('/data/citeseer/adj.npz')
     filter = aug_normalized_adjacency(adj)
-    del adj_s, features, labels, indices
+    # del adj_s, features, labels, indices
     R = ssp.load_npz(f'/data/{args.dataset}/R.npz')
 
-    start_time = time.perf_counter()
+    start_time = time.process_time()
     embeds = R @ embeds
     for _ in range(power):
         embeds = filter @ embeds
-    end_time = time.perf_counter()
+    end_time = time.process_time()
     logger.info(f'Refinement costs {end_time-start_time:.4f} seconds')
     
+    full_indices = np.load('/data/citeseer/indices.npz')
+    full_labels = np.load('/data/citeseer/labels.npy')
     train_idx, val_idx, test_idx = full_indices['train'], full_indices['val'], full_indices['test']
+    print(len(full_labels))
 
-    model = LogisticRegression(solver='lbfgs')
+    print(embeds.shape, full_labels.shape)
+    model = LogisticRegression(solver='lbfgs', multi_class='auto')
     model.fit(embeds[train_idx], full_labels[train_idx])
     predict = model.predict(embeds[test_idx])
     acc_test = accuracy_score(full_labels[test_idx], predict)
