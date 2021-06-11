@@ -12,7 +12,8 @@ from tqdm import tqdm
 
 def run_LINE(G, epochs=50, neg_size=5):
     dataset = LINEDataset(G)
-    dataloader = DataLoader(dataset, shuffle=True, batch_size=256, num_workers=8)
+    print(len(dataset))
+    dataloader = DataLoader(dataset, shuffle=False, batch_size=1024, num_workers=8)
 
     model = LINE(G.number_of_nodes(), 128)
     optimizer = optim.Adam(model.parameters(), lr=1e-2)
@@ -38,7 +39,7 @@ def run_LINE(G, epochs=50, neg_size=5):
 
     model.order = 2
     dataset = LINEDataset(G, neg_size)
-    dataloader = DataLoader(dataset, shuffle=True, batch_size=256, num_workers=8)
+    dataloader = DataLoader(dataset, shuffle=False, batch_size=1024, num_workers=8)
     epoch = 0
     with tqdm(total=epochs) as pbar:
         for epoch in range(epochs):

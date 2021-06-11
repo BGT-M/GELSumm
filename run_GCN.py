@@ -75,7 +75,8 @@ logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
 features = (features-features.mean(axis=0)) / features.std(axis=0)
-R = ssp.load_npz(f'data/{args.dataset}/R.npz')
+R = ssp.load_npz(f'data/{args.dataset}/R.npz').tocoo()
+# R = ssp.coo_matrix(([1]*len(R.data), (R.row, R.col)), shape=R.shape, dtype=R.dtype)
 if args.type == "rw":
     adj += ssp.eye(N)
     adj = normalize(adj)
@@ -92,16 +93,14 @@ else:
     adj_s = Ds_inv @ (adj_s @ Ds_inv)
     features_s = R.T @ features
 
-R, adj, adj_s, features, features_s, labels, full_labels = to_torch(R), to_torch(adj), to_torch(
-    adj_s), to_torch(features), to_torch(features_s), to_torch(labels), to_torch(full_labels)
-idx_train, idx_val, idx_test = to_torch(
-    idx_train), to_torch(idx_val), to_torch(idx_test)
+R, adj, adj_s, features, features_s, labels, full_labels = to_torch(R), to_torch(adj), to_torch(adj_s), to_torch(features), to_torch(features_s), to_torch(labels), to_torch(full_labels)
+idx_train, idx_val, idx_test = to_torch(idx_train), to_torch(idx_val), to_torch(idx_test)
 
 device = f"cuda:{gpu_id}"
 if gpu_id >= 0:
     adj = adj.cuda(device)
     adj_s = adj_s.cuda(device)
-    R = R.cuda(device)
+    # R = R.cuda(device)
     features = features.cuda(device)
     features_s = features_s.cuda(device)
     labels = labels.cuda(device)
@@ -180,6 +179,7 @@ def test(model, power):
     for _ in range(power):
         output = torch.spmm(adj, output)
     end = time.perf_counter()
+    torch.save(output, f'embeds.pt')
 
     output = F.log_softmax(output, dim=1)
     f_idx_test = full_indices['test']
@@ -204,5 +204,5 @@ if __name__ == "__main__":
         logger.info(f"Total time: {refine_time+train_time} seconds.")
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    #pickle.dump(model.state_dict(), open(os.path.join(
+    # pickle.dump(model.state_dict(), open(os.path.join(
     #    'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))

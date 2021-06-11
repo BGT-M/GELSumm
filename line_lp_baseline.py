@@ -45,7 +45,7 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 
 def learn_embeds():
-    adj = ssp.load_npz(os.path.join('/data', args.dataset, 'adj.npz'))
+    adj = ssp.load_npz(os.path.join('/data', args.dataset, 'adj_lp.npz'))
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     del adj
     logger.info("Start training LINE...")

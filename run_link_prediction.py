@@ -23,7 +23,6 @@ formatter = logging.Formatter(
 parser = ArgumentParser()
 parser.add_argument('--method', type=str, choices=['deepwalk', 'line'], help='Embed method')
 parser.add_argument('--dataset', type=str)
-parser.add_argument('--dataset_raw', type=str)
 parser.add_argument('--power', type=int, default=8, help='Maximum power of smoothing filter')
 parser.add_argument('--embed_path', type=str, default='', help='Pre-trained embedding path')
 args = parser.parse_args()
@@ -43,7 +42,7 @@ logger.debug(args)
 
 
 def learn_embeds_dw():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     del adj
     logger.info("Start training DeepWalk...")
@@ -59,23 +58,25 @@ def learn_embeds_dw():
 
 
 def learn_embeds_line():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     del adj
     logger.info("Start training LINE...")
     start_time = time.perf_counter()
     embeds = run_LINE(G, 100, 5)
     end_time = time.perf_counter()
-    logger.info(f"Deepwalk learning costs {end_time-start_time:.4f} seconds")
+    logger.info(f"LINE learning costs {end_time-start_time:.4f} seconds")
 
     if not os.path.exists(f'output/{args.dataset}'):
         os.mkdir(f'output/{args.dataset}')
-    np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
+    np.save(os.path.join('output', args.dataset, 'line.npy'), embeds)
     return embeds, end_time - start_time
 
 
 def test(embeds, power):
-    adj = ssp.load_npz(f'data/{args.dataset_raw}/adj_lp.npz')
+    dataset = args.dataset
+    dataset_raw = dataset[:args.dataset.find('_')]
+    adj = ssp.load_npz(f'data/{dataset_raw}/adj_lp.npz')
     filter = aug_normalized_adjacency(adj)
     R = ssp.load_npz(f'data/{args.dataset}/R.npz')
 
@@ -87,8 +88,8 @@ def test(embeds, power):
     end_time = time.perf_counter()
     logger.info(f'Refinement costs {end_time-start_time:.4f} seconds')
     
-    positive = np.load(f'/data/{args.dataset_raw}/positive.npy').astype(np.int)
-    negative = np.load(f'/data/{args.dataset_raw}/negative.npy').astype(np.int)
+    positive = np.load(f'/data/{dataset_raw}/positive.npy').astype(np.int)
+    negative = np.load(f'/data/{dataset_raw}/negative.npy').astype(np.int)
     pos_embeds = []
     neg_embeds = []
     pos_labels = np.array([1] * len(positive))

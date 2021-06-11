@@ -21,7 +21,7 @@ formatter = logging.Formatter(
 parser = ArgumentParser()
 parser.add_argument('--dataset', type=str)
 parser.add_argument('--method', type=str, choices=['deepwalk', 'line'], help='Embed method')
-parser.add_argument('--power', type=int, default=8, help='Maximum Power of smooth filter')
+parser.add_argument('--power', type=int, default=7, help='Maximum Power of smooth filter')
 parser.add_argument('--epochs', type=int, default=100, help='Number of epochs (only for LINE)')
 parser.add_argument('--embed_path', type=str, default='', help='Pre-trained embedding path')
 args = parser.parse_args()
@@ -41,7 +41,7 @@ logger.debug(args)
 
 
 def learn_embeds_dw():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     G.remove_edges_from(nx.selfloop_edges(G))
     del adj
@@ -58,13 +58,14 @@ def learn_embeds_dw():
 
 
 def learn_embeds_line():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'A_s.npz')).tocsr()
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
+    G.remove_edges_from(nx.selfloop_edges(G))
     del adj
     logger.info("Start training LINE...")
-    start_time = time.process_time()
+    start_time = time.perf_counter()
     embeds = run_LINE(G, args.epochs, 5)
-    end_time = time.process_time()
+    end_time = time.perf_counter()
     logger.info(f"LINE learning costs {end_time-start_time:.4f} seconds")
 
     if not os.path.exists(f'output/{args.dataset}'):
@@ -82,26 +83,23 @@ def load_embeds_line():
     return embeds
 
 
-def test_node_classification(dataset, embeds, power):
-    # adj, adj_s, features, labels, full_labels, indices, full_indices = load_dataset(dataset)
-    adj = ssp.load_npz('/data/citeseer/adj.npz')
-    filter = aug_normalized_adjacency(adj)
-    # del adj_s, features, labels, indices
-    R = ssp.load_npz(f'/data/{args.dataset}/R.npz')
+def test_node_classification(dataset: str, embeds, power):
+    dataset_raw = dataset[:dataset.find('_')]
+    adj = ssp.load_npz(f'data/{dataset_raw}/adj.npz')
+    filter = aug_normalized_adjacency(adj, 1.0)
+    R = ssp.load_npz(f'data/{dataset}/R.npz')
 
-    start_time = time.process_time()
+    start_time = time.perf_counter()
     embeds = R @ embeds
     for _ in range(power):
         embeds = filter @ embeds
-    end_time = time.process_time()
+    end_time = time.perf_counter()
     logger.info(f'Refinement costs {end_time-start_time:.4f} seconds')
     
-    full_indices = np.load('/data/citeseer/indices.npz')
-    full_labels = np.load('/data/citeseer/labels.npy')
+    full_labels = np.load(f'data/{dataset_raw}/labels.npy')
+    full_indices = np.load(f'data/{dataset_raw}/indices.npz')
     train_idx, val_idx, test_idx = full_indices['train'], full_indices['val'], full_indices['test']
-    print(len(full_labels))
 
-    print(embeds.shape, full_labels.shape)
     model = LogisticRegression(solver='lbfgs', multi_class='auto')
     model.fit(embeds[train_idx], full_labels[train_idx])
     predict = model.predict(embeds[test_idx])

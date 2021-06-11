@@ -37,7 +37,7 @@ if len(logger.handlers) < 2:
 logger.debug(args)
 
 def learn_embeds():
-    adj = ssp.load_npz(os.path.join('/data', args.dataset, 'adj.npz'))
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj.npz'))
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
     del adj
     logger.info("Start training DeepWalk...")
@@ -53,14 +53,14 @@ def learn_embeds():
 
 
 def test(dataset, embeds, power):
-    adj = ssp.load_npz(f'/data/{dataset}/adj.npz')
+    adj = ssp.load_npz(f'data/{dataset}/adj.npz')
     adj = aug_normalized_adjacency(adj)
     for _ in range(power):
         embeds = adj @ embeds
     del adj
 
-    full_labels = np.load(os.path.join('/data', dataset, 'labels.npy'))
-    full_indices = np.load(os.path.join('/data', dataset, 'indices.npz'))
+    full_labels = np.load(os.path.join('data', dataset, 'labels.npy'))
+    full_indices = np.load(os.path.join('data', dataset, 'indices.npz'))
 
     train_idx, test_idx = full_indices['train'], full_indices['test']
 

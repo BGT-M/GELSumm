@@ -136,3 +136,5 @@ output/
 notebook/
 
 data*
+logs/
+*.sh

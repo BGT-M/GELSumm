@@ -9,9 +9,9 @@ from sklearn.metrics import f1_score
 
 
 def load_dataset(dataset):
-    dir_ = os.path.join("./data", dataset)
-    A = ssp.load_npz(os.path.join(dir_, "A.npz"))
-    A_s = ssp.load_npz(os.path.join(dir_, "A_s.npz"))
+    dir_ = os.path.join("data", dataset)
+    A = ssp.load_npz(os.path.join(dir_, "adj.npz"))
+    A_s = ssp.load_npz(os.path.join(dir_, "adj_s.npz"))
     features = np.load(os.path.join(dir_, "feats.npy"))
 
     labels = np.load(os.path.join(dir_, "labels.npy"))
@@ -62,14 +62,14 @@ def normalize(mx):
     return mx
 
 
-def aug_normalized_adjacency(adj):
-    adj = adj + ssp.eye(adj.shape[0])
-    adj = adj.tocoo()
+def aug_normalized_adjacency(adj, lda=1.0):
+    adj = adj + lda * ssp.identity(adj.shape[0])
+    adj = adj.tocsr()
     row_sum = np.array(adj.sum(1))
     d_inv_sqrt = np.power(row_sum, -0.5).flatten()
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = ssp.diags(d_inv_sqrt)
-    return (d_mat_inv_sqrt @ adj @ d_mat_inv_sqrt)
+    return d_mat_inv_sqrt @ (adj @ d_mat_inv_sqrt)
 
 
 def sgc_precompute(features, adj, degree):

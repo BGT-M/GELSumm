@@ -83,4 +83,4 @@ def test(dataset, embeds):
 if __name__ == "__main__":
     # embeds = load_embeds()
     embeds = learn_embeds()
-    test(args.dataset, embeds)
+    # test(args.dataset, embeds)
