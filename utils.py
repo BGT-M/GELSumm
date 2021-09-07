@@ -3,6 +3,7 @@ import os
 import time
 
 import numpy as np
+from numpy.core.numeric import _full_like_dispatcher
 import scipy.sparse as ssp
 import torch
 from sklearn.metrics import f1_score
@@ -20,6 +21,17 @@ def load_dataset(dataset):
     full_indices = np.load(os.path.join(dir_, "full_indices.npz"))
 
     return A, A_s, features, labels, full_labels, indices, full_indices
+
+
+def load_dataset_gs(dataset):
+    dir_ = os.path.join("data", dataset)
+    adj = ssp.load_npz(os.path.join(dir_, "adj.npz"))
+    adj_s = ssp.load_npz(os.path.join(dir_, "adj_s.npz"))
+    features = np.load(os.path.join(dir_, "feats.npy"))
+    full_indices = np.load(os.path.join(dir_, "full_indices.npz"))
+    full_labels = np.load(os.path.join(dir_, "full_labels.npy"))
+
+    return adj, adj_s, features, full_indices, full_labels
 
 
 def to_torch(x):
