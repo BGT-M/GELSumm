@@ -74,7 +74,7 @@ nclass = full_labels.max().item() + 1
 logger.info(f"Dataset loaded. N: {N}, n: {n}, feature: {d}-dim")
 logger.info(f"Train: {len(idx_train)}, Val: {len(idx_val)}, Test: {len(idx_test)}")
 
-features = (features-features.mean(axis=0)) / features.std(axis=0)
+# features = (features-features.mean(axis=0)) / features.std(axis=0)
 R = ssp.load_npz(f'data/{args.dataset}/R.npz').tocoo()
 # R = ssp.coo_matrix(([1]*len(R.data), (R.row, R.col)), shape=R.shape, dtype=R.dtype)
 if args.type == "rw":
@@ -89,7 +89,9 @@ else:
     degs = np.array(adj.sum(axis=1)).flatten()
     D_inv_sqrt = ssp.diags(np.power(degs, -0.5))
     adj = D_inv_sqrt @ (adj @ D_inv_sqrt)
-    Ds_inv = ssp.load_npz(f'data/{args.dataset}/Ds_inv.npz')
+
+    degs = np.array(adj_s.sum(axis=1)).flatten()
+    Ds_inv = ssp.diags(np.power(degs, -0.5))
     adj_s = Ds_inv @ (adj_s @ Ds_inv)
     features_s = R.T @ features
 
@@ -204,5 +206,3 @@ if __name__ == "__main__":
         logger.info(f"Total time: {refine_time+train_time} seconds.")
     if not os.path.exists(os.path.join('output', args.dataset)):
         os.makedirs(os.path.join('output', args.dataset))
-    # pickle.dump(model.state_dict(), open(os.path.join(
-    #    'output', args.dataset, f'model_{time_str}.pkl'), 'wb'))

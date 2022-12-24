@@ -21,9 +21,8 @@ formatter = logging.Formatter(
 parser = ArgumentParser()
 parser.add_argument('--dataset', type=str)
 parser.add_argument('--method', type=str, choices=['deepwalk', 'line'], help='Embed method')
-parser.add_argument('--power', type=int, default=7, help='Maximum Power of smooth filter')
+parser.add_argument('--power', type=int, default=8, help='Maximum Power of smooth filter')
 parser.add_argument('--epochs', type=int, default=100, help='Number of epochs (only for LINE)')
-parser.add_argument('--embed_path', type=str, default='', help='Pre-trained embedding path')
 args = parser.parse_args()
 
 if len(logger.handlers) < 2:
@@ -41,9 +40,16 @@ logger.debug(args)
 
 
 def learn_embeds_dw():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
+    weighted = True
+    self_loop = False
+    logger.debug("Weighted: {}, self-loop: {}".format(weighted, self_loop))
+    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz'))
+    if not weighted:
+        adj = adj.tocoo()
+        adj = ssp.csr_matrix(([1] * len(adj.data), (adj.row, adj.col)), shape=adj.shape)
     G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
-    G.remove_edges_from(nx.selfloop_edges(G))
+    if not self_loop:
+        G.remove_edges_from(nx.selfloop_edges(G))
     del adj
     logger.info("Start training DeepWalk...")
     start_time = time.perf_counter()
@@ -53,49 +59,23 @@ def learn_embeds_dw():
 
     if not os.path.exists(f'output/{args.dataset}'):
         os.mkdir(f'output/{args.dataset}')
-    # np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
+    np.save(os.path.join('output', args.dataset, 'deepwalk.npy'), embeds)
     return embeds, end_time - start_time
-
-
-def learn_embeds_line():
-    adj = ssp.load_npz(os.path.join('data', args.dataset, 'adj_s.npz')).tocsr()
-    G = nx.from_scipy_sparse_matrix(adj, edge_attribute='weight', create_using=nx.Graph())
-    G.remove_edges_from(nx.selfloop_edges(G))
-    del adj
-    logger.info("Start training LINE...")
-    start_time = time.perf_counter()
-    embeds = run_LINE(G, args.epochs, 5)
-    end_time = time.perf_counter()
-    logger.info(f"LINE learning costs {end_time-start_time:.4f} seconds")
-
-    if not os.path.exists(f'output/{args.dataset}'):
-        os.mkdir(f'output/{args.dataset}')
-    np.save(os.path.join('output', args.dataset, 'line.npy'), embeds)
-    return embeds, end_time - start_time
-
-
-def load_embeds_line():
-    tmp_embeds = np.genfromtxt(f'data/{args.dataset}/vec_all.txt', skip_header=1)
-    embeds = np.zeros((tmp_embeds.shape[0], tmp_embeds.shape[1]-1))
-    for i in range(tmp_embeds.shape[0]):
-        idx = int(tmp_embeds[i, 0])
-        embeds[i] = tmp_embeds[i, 1:]
-    return embeds
 
 
 def test_node_classification(dataset: str, embeds, power):
     dataset_raw = dataset[:dataset.find('_')]
     adj = ssp.load_npz(f'data/{dataset_raw}/adj.npz')
-    filter = aug_normalized_adjacency(adj, 1.0)
+    filter_ = aug_normalized_adjacency(adj, 1.0)
     R = ssp.load_npz(f'data/{dataset}/R.npz')
 
     start_time = time.perf_counter()
     embeds = R @ embeds
     for _ in range(power):
-        embeds = filter @ embeds
+        embeds = filter_ @ embeds
     end_time = time.perf_counter()
     logger.info(f'Refinement costs {end_time-start_time:.4f} seconds')
-    
+
     full_labels = np.load(f'data/{dataset_raw}/labels.npy')
     full_indices = np.load(f'data/{dataset_raw}/indices.npz')
     train_idx, val_idx, test_idx = full_indices['train'], full_indices['val'], full_indices['test']
@@ -111,16 +91,12 @@ def test_node_classification(dataset: str, embeds, power):
 if __name__ == '__main__':
     embeds = None
     embed_time = 0.0
-    if len(args.embed_path) > 0:
-        embeds = np.load(args.embed_path)
-    elif args.method == 'deepwalk':
+    if args.method == 'deepwalk':
         embeds, embed_time = learn_embeds_dw()
-    elif args.method == 'line':
-        embeds, embed_time = learn_embeds_line()
-        # embeds = load_embeds_line()
     else:
         raise NotImplementedError(f'Unsupported method: {args.method}')
-    
+
     for p in range(args.power):
         refinement_time = test_node_classification(args.dataset, embeds, p)
         logger.info(f'Total time: {embed_time + refinement_time:.4f} seconds')
+

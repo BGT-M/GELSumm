@@ -20,11 +20,10 @@ formatter = logging.Formatter(
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, help="Dataset name")
-parser.add_argument("--power", type=int, default=8, help="Maximum power of filter")
 
 args = parser.parse_args()
 if len(logger.handlers) < 2:
-    filename = f'deepwalk_baseline_{args.dataset}.log'
+    filename = f'logs/deepwalk_baseline_{args.dataset}.log'
     file_handler = logging.FileHandler(filename, mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
@@ -52,13 +51,7 @@ def learn_embeds():
     return embeds
 
 
-def test(dataset, embeds, power):
-    adj = ssp.load_npz(f'data/{dataset}/adj.npz')
-    adj = aug_normalized_adjacency(adj)
-    for _ in range(power):
-        embeds = adj @ embeds
-    del adj
-
+def test(dataset, embeds):
     full_labels = np.load(os.path.join('data', dataset, 'labels.npy'))
     full_indices = np.load(os.path.join('data', dataset, 'indices.npz'))
 
@@ -72,5 +65,5 @@ def test(dataset, embeds, power):
 
 if __name__ == "__main__":
     embeds = learn_embeds()
-    for p in range(args.power):
-        test(args.dataset, embeds, p)
+    test(args.dataset, embeds)
+

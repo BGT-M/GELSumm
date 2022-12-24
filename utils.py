@@ -90,3 +90,4 @@ def sgc_precompute(features, adj, degree):
         features = torch.spmm(adj, features)
     precompute_time = time.time() - t
     return features, precompute_time
+
